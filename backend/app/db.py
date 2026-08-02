@@ -55,6 +55,10 @@ def _migrate_columns() -> None:
             _add_columns(table, {"user_id": "INTEGER"})
         except Exception:
             pass
+    try:
+        _add_columns("health_days", {"hrv_avg": "REAL", "hrv_status": "VARCHAR"})
+    except Exception:
+        pass
 
 
 def _migrate_existing_data() -> None:

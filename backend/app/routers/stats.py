@@ -77,6 +77,9 @@ def summary(
                 "calories": round(entry.get("calories", 0)),
                 "sleep_h": round((h.sleep_seconds or 0) / 3600, 1) if h else None,
                 "steps": h.steps if h else None,
+                "resting_hr": h.resting_hr if h else None,
+                "hrv": h.hrv_avg if h else None,
+                "hrv_status": h.hrv_status if h else None,
                 "activities": entry.get("activities", []),
             }
         )
@@ -91,6 +94,10 @@ def summary(
     sleep_vals = [s_["sleep_h"] for s_ in series if s_["sleep_h"] is not None]
     totals["avg_sleep_h"] = round(sum(sleep_vals) / len(sleep_vals), 1) if sleep_vals else None
     totals["avg_hr"] = None
+    rest_vals = [s_["resting_hr"] for s_ in series if s_["resting_hr"]]
+    totals["avg_resting_hr"] = round(sum(rest_vals) / len(rest_vals)) if rest_vals else None
+    hrv_vals = [s_["hrv"] for s_ in series if s_["hrv"]]
+    totals["avg_hrv"] = round(sum(hrv_vals) / len(hrv_vals), 1) if hrv_vals else None
 
     hrs = [a.avg_hr for a in acts if a.avg_hr]
     if hrs:

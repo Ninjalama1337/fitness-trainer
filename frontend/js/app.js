@@ -262,11 +262,13 @@ function renderCards(t) {
     { label: "Kraft", value: t.strength_count + "×" },
     { label: "Kalorien", value: fmtNum(t.calories, 0) },
     { label: "Schlaf Ø", value: t.avg_sleep_h !== null ? fmtNum(t.avg_sleep_h) + " h" : "–" },
-    { label: "HF Ø", value: t.avg_hr ? Math.round(t.avg_hr) : "–" },
+    { label: "Ruhepuls Ø", value: t.avg_resting_hr ? Math.round(t.avg_resting_hr) + " bpm" : "–" },
+    { label: "HFV Ø", value: t.avg_hrv ? fmtNum(t.avg_hrv) + " ms" : "–" },
+    { label: "HF Ø", value: t.avg_hr ? Math.round(t.avg_hr) + " bpm" : "–" },
   ];
   cards.forEach((c, i) => {
     const d = el("div", "card");
-    d.style.animationDelay = i * 0.05 + "s";
+    d.style.animationDelay = i * 0.04 + "s";
     d.append(el("div", "label", c.label), el("div", "value", c.value));
     $("#dashCards").append(d);
   });

@@ -225,9 +225,9 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
                     skipped += 1
                     continue
                 if existing:
-                    row["hr_zones"] = existing.hr_zones or _fetch_hr_zones(api, row["garmin_id"])
+                    row["hr_zones"] = existing.hr_zones or row["hr_zones"] or _fetch_hr_zones(api, row["garmin_id"])
                 else:
-                    row["hr_zones"] = _fetch_hr_zones(api, row["garmin_id"])
+                    row["hr_zones"] = row["hr_zones"] or _fetch_hr_zones(api, row["garmin_id"])
                 logger.info(
                     "Aktivitaet %s: sport=%s km=%s avg_hr=%s zones=%s",
                     row["garmin_id"], row["sport"], row["distance_km"],
@@ -272,7 +272,9 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
     for offset in range(days):
         day = today - timedelta(days=offset)
         existing = s.get(HealthDay, (user_id, day))
-        if existing and (existing.sleep_seconds or existing.active_calories or existing.steps):
+        # Überspringen nur, wenn der Eintrag vollständig ist (Schlaf als Indikator),
+        # sonst werden fehlende Werte (z.B. nach 429) nachgeholt.
+        if existing and existing.sleep_seconds:
             continue
         day_str = day.isoformat()
         entry = existing or HealthDay(user_id=user_id, date=day)
@@ -304,9 +306,13 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
                     )
                 entry.sleep_seconds = secs or None
                 entry.deep_sleep_seconds = deep or None
+                entry.hrv_avg = sleep.get("avgOvernightHrv") or sleep.get("hrvAverage")
+                entry.hrv_status = sleep.get("hrvStatus")
+                if not entry.resting_hr:
+                    entry.resting_hr = sleep.get("restingHeartRate")
         except Exception:
             pass
-        if entry.sleep_seconds or entry.active_calories or entry.steps:
+        if entry.sleep_seconds or entry.active_calories or entry.steps or entry.hrv_avg or entry.resting_hr:
             s.add(entry)
 
 

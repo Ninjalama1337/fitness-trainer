@@ -50,6 +50,8 @@ class HealthDay(SQLModel, table=True):
     deep_sleep_seconds: Optional[float] = None
     active_calories: Optional[float] = None
     resting_hr: Optional[float] = None
+    hrv_avg: Optional[float] = None
+    hrv_status: Optional[str] = None
     stress_avg: Optional[float] = None
     steps: Optional[int] = None
 
