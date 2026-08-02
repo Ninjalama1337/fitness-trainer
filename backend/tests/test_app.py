@@ -441,6 +441,25 @@ def test_normalize_activity_from_list_api():
     assert row["hr_zones"]["zone3"] == 2866
 
 
+def test_generate_suggestion_sets_user_id(monkeypatch):
+    from backend.app import plan_service
+
+    def fake_chat_json(system, user_prompt, db_user=None):
+        assert db_user is not None
+        return {
+            "titel": "Testlauf",
+            "sport": "running",
+            "begruendung": "weil",
+            "training": "30 min locker",
+            "steps": [{"typ": "warmup", "dauer_min": 5, "zone": 1}],
+        }
+
+    monkeypatch.setattr("backend.app.plan_service.llm.chat_json", fake_chat_json)
+    sug = plan_service.generate_suggestion(admin_id())
+    assert sug.user_id == admin_id()
+    assert sug.title == "Testlauf"
+
+
 def test_credentials_encrypted_at_rest():
     uid = admin_id()
     with TestClient(app) as c:

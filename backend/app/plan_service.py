@@ -142,6 +142,7 @@ Antworte als JSON:
         raise
     with db.session() as s:
         sug = Suggestion(
+            user_id=user_id,
             title=str(result.get("titel", "")),
             sport=str(result.get("sport", "running")),
             rationale=str(result.get("begruendung", "")),
