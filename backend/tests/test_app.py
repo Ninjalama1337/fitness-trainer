@@ -334,6 +334,10 @@ def test_week_summary_generate_and_get(monkeypatch):
         }
 
     monkeypatch.setattr("backend.app.plan_service.llm.chat_json", fake_chat_json)
+    monkeypatch.setattr(
+        "backend.app.routers.weekly_summary.llm.status",
+        lambda user=None: {"configured": True, "provider": "opencode", "model": "x"},
+    )
     with TestClient(app) as c:
         login(c)
         r = c.get("/api/weekly-summary")
