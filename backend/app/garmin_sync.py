@@ -284,7 +284,12 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
                 entry.resting_hr = stats.get("restingHeartRate") or stats.get("restHR")
                 entry.steps = stats.get("totalSteps") or stats.get("steps")
                 entry.stress_avg = stats.get("averageStressLevel") or stats.get("stressAvg")
-                entry.active_calories = stats.get("activeKilocalories") or stats.get("activeCalories")
+                entry.active_calories = (
+                    stats.get("totalKilocalories")
+                    or stats.get("burnedKilocalories")
+                    or stats.get("activeKilocalories")
+                    or stats.get("activeCalories")
+                )
         except Exception:
             pass
         try:
@@ -306,7 +311,10 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
                     )
                 entry.sleep_seconds = secs or None
                 entry.deep_sleep_seconds = deep or None
-                entry.hrv_avg = sleep.get("avgOvernightHrv") or sleep.get("hrvAverage")
+                hrv = sleep.get("avgOvernightHrv")
+                if not hrv and isinstance(sleep.get("hrvData"), dict):
+                    hrv = sleep["hrvData"].get("avgOvernightHrv")
+                entry.hrv_avg = hrv or sleep.get("hrvAverage")
                 entry.hrv_status = sleep.get("hrvStatus")
                 if not entry.resting_hr:
                     entry.resting_hr = sleep.get("restingHeartRate")
