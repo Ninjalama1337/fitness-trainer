@@ -106,8 +106,9 @@ def build_workout(name: str, sport: str, steps: list) -> dict:
 def _connected_api(user_id: int):
     api = g._api(user_id)
     try:
-        g.TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        api.login(tokenstore=str(g.TOKEN_DIR))
+        tdir = g.token_dir(user_id)
+        tdir.mkdir(parents=True, exist_ok=True)
+        api.login(tokenstore=str(tdir))
     except g.GarminMfaRequired:
         raise
     except Exception as exc:

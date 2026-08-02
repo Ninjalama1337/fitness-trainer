@@ -1,4 +1,6 @@
+import logging
 import shutil
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -8,6 +10,8 @@ from . import config, crypto, db
 from .db import get_activity_by_garmin_id
 from .models import Activity, GarminCred, HealthDay, SyncState
 from .sports import map_sport, normalize_zones
+
+logger = logging.getLogger("fitness")
 
 
 class GarminError(Exception):
@@ -132,20 +136,55 @@ def _normalize_activity(a: dict) -> dict:
     }
 
 
+def _api_get(api, call, retries: int = 2):
+    """Führt einen Garmin-API-Call mit kurzem Backoff aus (429/5xx drosseln)."""
+    for attempt in range(retries + 1):
+        try:
+            result = call()
+            time.sleep(0.35)  # freundlich zu Garmin bleiben
+            return result
+        except Exception as exc:
+            text = str(exc)
+            if ("429" in text or "rate limit" in text.lower()) and attempt < retries:
+                logger.info("Garmin 429 erkannt, warte %ss (Versuch %s/2)…", 2 + attempt * 2, attempt + 1)
+                time.sleep(2 + attempt * 2)
+                continue
+            raise
+    raise RuntimeError("unreachable")
+
+
 def _fetch_hr_zones(api, garmin_id: str) -> dict | None:
+    """Zonen-Sekunden aus der Aktivität holen – toleriert mehrere Antwortformate."""
     try:
-        zones = api.get_activity_hr_in_timezones(str(garmin_id))
+        zones = _api_get(api, lambda: api.get_activity_hr_in_timezones(str(garmin_id)))
         if isinstance(zones, dict):
-            values = zones.get("hrTimeInZones")
-            return normalize_zones(values)
-    except Exception:
-        pass
+            values = (
+                zones.get("hrTimeInZones")
+                or zones.get("zones")
+                or zones.get("hrTimeInZonesByActivity")
+            )
+            if values is None and "hrTimeInZones" in str(zones.keys()):
+                pass
+            normalized = normalize_zones(values)
+            if normalized:
+                return normalized
+            logger.info("get_activity_hr_in_timezones unerwartetes Format: %s", str(zones)[:200])
+    except Exception as exc:
+        logger.info("Zone-Fetch (timezones) fehlgeschlagen: %s", str(exc)[:150])
     try:
-        details = api.get_activity(str(garmin_id))
-        values = details.get("hrTimeInZones") if isinstance(details, dict) else None
-        return normalize_zones(values)
-    except Exception:
-        return None
+        details = _api_get(api, lambda: api.get_activity(str(garmin_id)))
+        values = (
+            details.get("hrTimeInZones")
+            if isinstance(details, dict)
+            else None
+        )
+        normalized = normalize_zones(values)
+        if normalized:
+            return normalized
+        logger.info("get_activity Details: hrTimeInZones=%s (Typ %s)", values, type(values).__name__)
+    except Exception as exc:
+        logger.info("Zone-Fetch (details) fehlgeschlagen: %s", str(exc)[:150])
+    return None
 
 
 def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> dict:
@@ -162,7 +201,8 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
     imported = 0
     skipped = 0
     with db.session() as s:
-        activities = api.get_activities(0, limit)
+        activities = _api_get(api, lambda: api.get_activities(0, limit))
+        logger.info("Garmin-Antwort: %s Aktivitaeten fuer User %s", len(activities), user_id)
         for a in activities:
             try:
                 row = _normalize_activity(a)
@@ -170,10 +210,18 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
                 skipped += 1
                 continue
             existing = get_activity_by_garmin_id(s, user_id, row["garmin_id"])
-            if existing and existing.start_time == row["start_time"]:
+            if existing and existing.start_time == row["start_time"] and existing.hr_zones:
                 skipped += 1
                 continue
-            row["hr_zones"] = _fetch_hr_zones(api, row["garmin_id"])
+            if existing:
+                row["hr_zones"] = existing.hr_zones or _fetch_hr_zones(api, row["garmin_id"])
+            else:
+                row["hr_zones"] = _fetch_hr_zones(api, row["garmin_id"])
+            logger.info(
+                "Aktivitaet %s: sport=%s km=%s avg_hr=%s zones=%s",
+                row["garmin_id"], row["sport"], row["distance_km"],
+                row["avg_hr"], bool(row["hr_zones"]),
+            )
             if existing:
                 for k, v in row.items():
                     setattr(existing, k, v)
@@ -189,12 +237,13 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
     today = date.today()
     for offset in range(days):
         day = today - timedelta(days=offset)
-        if s.get(HealthDay, (user_id, day)):
+        existing = s.get(HealthDay, (user_id, day))
+        if existing and (existing.sleep_seconds or existing.active_calories or existing.steps):
             continue
         day_str = day.isoformat()
-        entry = HealthDay(user_id=user_id, date=day)
+        entry = existing or HealthDay(user_id=user_id, date=day)
         try:
-            stats = api.get_stats(day_str)
+            stats = _api_get(api, lambda: api.get_stats(day_str))
             if isinstance(stats, dict):
                 entry.resting_hr = stats.get("restHR")
                 entry.steps = stats.get("steps")
@@ -203,7 +252,7 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
         except Exception:
             pass
         try:
-            sleep = api.get_sleep_data(day_str)
+            sleep = _api_get(api, lambda: api.get_sleep_data(day_str))
             if isinstance(sleep, dict) and sleep.get("sleepLevels"):
                 levels = sleep["sleepLevels"]["levels"] or []
                 secs = sum(int(l.get("seconds") or 0) for l in levels)
