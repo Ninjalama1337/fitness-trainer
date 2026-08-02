@@ -324,6 +324,28 @@ def test_race_plan_create_and_delete(monkeypatch):
         assert r.json()["ok"] is False
 
 
+def test_week_summary_generate_and_get(monkeypatch):
+    from backend.app import plan_service
+
+    def fake_chat_json(system, user_prompt, db_user=None, **kwargs):
+        return {
+            "zusammenfassung": "Starke Woche: 3 Einheiten und 38 km!",
+            "verbesserung": "Mehr Schlaf für die Regeneration.",
+        }
+
+    monkeypatch.setattr("backend.app.plan_service.llm.chat_json", fake_chat_json)
+    with TestClient(app) as c:
+        login(c)
+        r = c.get("/api/weekly-summary")
+        assert r.json()["ok"] is False
+        r = c.post("/api/weekly-summary/generate", headers={"Origin": "http://testserver"})
+        assert r.status_code == 200
+        assert "Starke Woche" in r.json()["summary"]
+        r = c.get("/api/weekly-summary")
+        assert r.json()["ok"] is True
+        assert r.json()["summary"] == "Starke Woche: 3 Einheiten und 38 km!"
+
+
 def test_plan_toggle():
     with TestClient(app) as c:
         login(c)

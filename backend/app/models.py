@@ -125,3 +125,13 @@ class RaceGoal(SQLModel, table=True):
     target_date: dt.date
     distance_km: float = 10.0
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+
+
+class WeekSummary(SQLModel, table=True):
+    __tablename__ = "week_summaries"
+
+    user_id: int = Field(primary_key=True)
+    week: str = Field(primary_key=True)
+    summary: str = ""
+    improvement: str = ""
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)

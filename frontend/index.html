@@ -8,7 +8,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=10">
+  <link rel="stylesheet" href="/css/style.css?v=11">
 </head>
 <body>
   <div id="themeScript"></div>
@@ -53,6 +53,10 @@
       <section id="view-dashboard" class="view active">
         <div class="rings" id="dashRings"></div>
         <div class="cards" id="dashCards"></div>
+        <div class="panel" id="weekSummaryPanel">
+          <div class="panel-head"><h2>Wochen-Rückblick</h2><span class="panel-sub" id="weekSummaryWeek"></span></div>
+          <div id="weekSummaryBox"></div>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Monatsziel</h2><span class="panel-sub" id="goalMonth"></span></div>
           <div id="goalBox" class="goal-box"></div>
@@ -229,6 +233,6 @@
 
   <div id="toasts" class="toasts"></div>
 
-  <script src="/js/app.js?v=10"></script>
+  <script src="/js/app.js?v=11"></script>
 </body>
 </html>

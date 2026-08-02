@@ -20,6 +20,7 @@ from .routers import (
     suggestion,
     upload,
     users,
+    weekly_summary,
 )
 
 logger = logging.getLogger("fitness")
@@ -45,6 +46,10 @@ def run_scheduled_sync() -> None:
                 "ok",
                 f"Auto-Sync: {result['imported']} neu, {result['skipped']} übersprungen",
             )
+            if result.get("imported", 0) > 0:
+                from .plan_service import ensure_week_summary
+
+                ensure_week_summary(user.id)
             logger.info("Auto-Sync OK (User %s): %s", user.id, result)
         except Exception as exc:
             logger.warning("Auto-Sync fehlgeschlagen (User %s): %s", user.id, exc)
@@ -94,6 +99,7 @@ app.include_router(upload.router)
 app.include_router(plan.router)
 app.include_router(suggestion.router)
 app.include_router(settings.router)
+app.include_router(weekly_summary.router)
 app.include_router(debug.router)
 
 

@@ -336,6 +336,54 @@ def _clean_strength_steps(steps) -> list | None:
     return cleaned or None
 
 
+def generate_week_summary(user_id: int) -> dict:
+    """KI-Wochenrückblick: primär positiv, ein freundlicher Verbesserungsvorschlag."""
+    from .models import WeekSummary
+
+    week = iso_week(date.today())
+    ctx = build_context(user_id, days=7)
+    system = (
+        "Du bist ein motivierender Lauftrainer. Fasse die Trainingswoche "
+        "wertschätzend zusammen – primär positiv, mit einem freundlichen "
+        "Verbesserungsvorschlag. Antworte NUR mit validem JSON."
+    )
+    user = f"""Fasse die letzte Woche zusammen (Daten der letzten 7 Tage):
+{json_dumps(ctx, indent=2)}
+
+Antworte als JSON:
+{{"zusammenfassung": "2-3 Sätze, wertschätzend und konkret (km, Einheiten, Bestleistungen, Regelmäßigkeit loben)", "verbesserung": "1 konkreter, freundlicher Verbesserungsvorschlag (z.B. Schlaf, Regelmäßigkeit, Umfang)"}}"""
+    db_user = auth.get_user(user_id)
+    result = llm.chat_json(system, user, db_user)
+    with db.session() as s:
+        row = s.get(WeekSummary, (user_id, week)) or WeekSummary(user_id=user_id, week=week)
+        row.summary = str(result.get("zusammenfassung", "")).strip()
+        row.improvement = str(result.get("verbesserung", "")).strip()
+        row.created_at = datetime.now()
+        s.add(row)
+        s.commit()
+        return {"week": week, "summary": row.summary, "improvement": row.improvement}
+
+
+def ensure_week_summary(user_id: int) -> dict | None:
+    """Erstellt die Wochen-Zusammenfassung, falls für die aktuelle Woche fehlend."""
+    from .models import WeekSummary
+
+    week = iso_week(date.today())
+    with db.session() as s:
+        existing = s.get(WeekSummary, (user_id, week))
+    if existing and existing.summary:
+        return {"week": week, "summary": existing.summary, "improvement": existing.improvement}
+    try:
+        return generate_week_summary(user_id)
+    except llm.LlmError as exc:
+        logger = __import__("logging").getLogger("fitness")
+        logger.info("Wochen-Zusammenfassung fehlgeschlagen: %s", exc)
+        return None
+    import json
+
+    return json.dumps(obj, indent=indent, ensure_ascii=False, default=str)
+
+
 def json_dumps(obj, indent=2) -> str:
     import json
 

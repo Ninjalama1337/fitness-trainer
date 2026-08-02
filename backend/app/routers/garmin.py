@@ -76,6 +76,13 @@ def sync(
             "ok",
             f"Sync erfolgreich: {result['imported']} neu, {result['skipped']} übersprungen",
         )
+        if result.get("imported", 0) > 0:
+            try:
+                from ..plan_service import ensure_week_summary
+
+                ensure_week_summary(user.id)
+            except Exception:
+                pass
         return {"ok": True, **result}
     except Exception as exc:
         import logging

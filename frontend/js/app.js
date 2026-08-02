@@ -8,6 +8,7 @@ let me = null;
 let settings = null;
 let currentSportFilter = "all";
 let planWeek = null;
+let planMonday = null; // UTC-Datum des Montags der angezeigten Woche (synchron geführt)
 let currentSuggestion = null;
 
 async function api(path, opts = {}) {
@@ -389,6 +390,31 @@ async function loadDashboard() {
   renderLoad(loadData);
   renderPbs(pbData);
   renderGoal(goalData);
+  loadWeekSummary();
+}
+
+/* ---------- Wochen-Rückblick ---------- */
+async function loadWeekSummary() {
+  const box = $("#weekSummaryBox");
+  box.innerHTML = "";
+  let data;
+  try {
+    data = await api("/api/weekly-summary");
+  } catch (e) {
+    return;
+  }
+  if (!data.ok) {
+    box.append(el("p", "muted small", "Noch kein Rückblick für diese Woche – entsteht automatisch nach dem nächsten Garmin-Sync."));
+    return;
+  }
+  $("#weekSummaryWeek").textContent = data.week;
+  const card = el("div", "summary-card");
+  card.append(el("div", "s-text", data.summary || ""));
+  if (data.improvement) {
+    card.append(el("div", "s-label", "Vorschlag"));
+    card.append(el("div", "s-text", data.improvement));
+  }
+  box.append(card);
 }
 
 /* ---------- Belastung ---------- */
@@ -648,6 +674,8 @@ async function loadPlan(week) {
   const url = week ? `/api/plan?week=${encodeURIComponent(week)}` : "/api/plan";
   const data = await api(url);
   planWeek = data.week;
+  const m = planWeek.match(/(\d{4})-W(\d{2})/);
+  planMonday = m ? mondayOfIsoWeek(+m[1], +m[2]) : null;
   $("#planWeek").textContent = data.week;
   list.innerHTML = "";
   if (!data.items.length) {
@@ -770,13 +798,17 @@ function isoWeekOfDate(d) {
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 function shiftPlanWeek(delta) {
-  if (!planWeek) return loadPlan();
-  const m = planWeek.match(/(\d{4})-W(\d{2})/);
-  if (!m) return loadPlan();
-  const monday = mondayOfIsoWeek(+m[1], +m[2]);
-  monday.setUTCDate(monday.getUTCDate() + delta * 7);
-  loadPlan(isoWeekOfDate(monday));
+  // Synchron auf Datums-Basis navigieren – unabhängig vom API-Roundtrip
+  if (!planMonday) return loadPlan();
+  const next = new Date(planMonday);
+  next.setUTCDate(next.getUTCDate() + delta * 7);
+  planMonday = next;
+  const w = isoWeekOfDate(next);
+  planWeek = w;
+  loadPlan(w);
 }
+
+$("#planWeek").addEventListener("dblclick", () => loadPlan());
 
 /* ================= Activities ================= */
 async function loadActivities() {
