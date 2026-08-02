@@ -211,6 +211,19 @@ def test_stats_zones():
         assert data["total_minutes"] > 0
 
 
+def test_stats_summary_includes_daily_activities():
+    with TestClient(app) as c:
+        login(c)
+        r = c.get("/api/stats/summary?days=7")
+        data = r.json()
+        day = next((s for s in data["series"] if s["activities"]), None)
+        assert day is not None
+        act = day["activities"][0]
+        assert act["sport"] in ("running", "cycling")
+        assert "distance_km" in act
+        assert act["duration_min"] > 0
+
+
 def test_plan_toggle():
     with TestClient(app) as c:
         login(c)

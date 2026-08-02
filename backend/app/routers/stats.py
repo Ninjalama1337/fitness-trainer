@@ -38,6 +38,7 @@ def summary(
                 "calories": 0.0,
                 "sleep_h": None,
                 "strength_count": 0,
+                "activities": [],
             },
         )
         entry["sessions"] += 1
@@ -48,6 +49,18 @@ def summary(
         elif a.sport == "strength":
             entry["strength_count"] += 1
         entry["calories"] += a.calories or 0
+        entry["activities"].append(
+            {
+                "name": a.name,
+                "sport": a.sport,
+                "distance_km": a.distance_km,
+                "duration_min": round(a.duration_seconds / 60),
+                "avg_hr": a.avg_hr,
+                "calories": a.calories,
+                "start_time": a.start_time.isoformat(),
+            }
+        )
+    entry["activities"].sort(key=lambda x: x["start_time"])
 
     series = []
     for i in range(days):
@@ -64,6 +77,7 @@ def summary(
                 "calories": round(entry.get("calories", 0)),
                 "sleep_h": round((h.sleep_seconds or 0) / 3600, 1) if h else None,
                 "steps": h.steps if h else None,
+                "activities": entry.get("activities", []),
             }
         )
 

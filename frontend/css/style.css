@@ -209,13 +209,30 @@ h2 { font-size: .98rem; margin-bottom: 10px; letter-spacing: -.01em; }
 
 /* ===== Bar chart ===== */
 .barchart { display: flex; align-items: flex-end; gap: 5px; height: 150px; padding-top: 8px; }
-.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; position: relative; }
 .bar-stack { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
 .bar { width: 100%; border-radius: 5px 5px 0 0; min-height: 2px; animation: grow .6s ease backwards; }
 @keyframes grow { from { height: 0 !important; } }
 .bar.run { background: linear-gradient(180deg, var(--run), #2a5cc7); }
 .bar.cycle { background: linear-gradient(180deg, var(--cycle), #1c8a52); }
 .bar-label { font-size: .66rem; color: var(--muted); }
+.bar-label.has-data { color: var(--ink); font-weight: 700; }
+.bar-col.has-tooltip { cursor: pointer; }
+
+.chart-tooltip {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(4px);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 10px 12px; z-index: 60;
+  min-width: 190px; max-width: 250px; max-height: 230px; overflow-y: auto;
+  pointer-events: none; opacity: 0; visibility: hidden;
+  transition: opacity .15s ease, transform .15s ease, visibility .15s;
+}
+.chart-tooltip.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.chart-tooltip .tt-head { font-weight: 800; font-size: .8rem; margin-bottom: 2px; }
+.chart-tooltip .tt-summary { font-size: .72rem; color: var(--muted); margin-bottom: 6px; }
+.chart-tooltip .tt-list { display: flex; flex-direction: column; gap: 4px; }
+.chart-tooltip .tt-row { font-size: .74rem; line-height: 1.35; display: flex; gap: 4px; align-items: flex-start; }
+.chart-tooltip .tt-row span { white-space: normal; }
 
 /* ===== Zone bar ===== */
 .stackedbar { display: flex; height: 34px; border-radius: 10px; overflow: hidden; margin: 10px 0 12px; }

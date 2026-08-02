@@ -286,10 +286,63 @@ function renderBarChart(series) {
     if (runH > 0) { const b = el("div", "bar run"); b.style.height = runH + "%"; b.style.animationDelay = i * 0.06 + "s"; stack.append(b); }
     if (cycH > 0) { const b = el("div", "bar cycle"); b.style.height = cycH + "%"; b.style.animationDelay = i * 0.06 + "s"; stack.append(b); }
     if (runH === 0 && cycH === 0) stack.append(empty);
-    col.append(stack, el("div", "bar-label", WEEKDAYS_SHORT[i]));
+    const label = el("div", "bar-label", WEEKDAYS_SHORT[i]);
+    col.append(stack, label);
+    if (s.activities && s.activities.length) {
+      const tooltip = buildDayTooltip(s, WEEKDAYS_SHORT[i]);
+      col.append(tooltip);
+      col.classList.add("has-tooltip");
+      col.addEventListener("mouseenter", () => tooltip.classList.add("show"));
+      col.addEventListener("mouseleave", () => tooltip.classList.remove("show"));
+      col.addEventListener("click", () => {
+        tooltip.classList.toggle("show");
+      });
+      label.classList.add("has-data");
+    }
     box.append(col);
   });
 }
+
+function buildDayTooltip(s, weekday) {
+  const tip = el("div", "chart-tooltip");
+  const dateStr = new Date(s.date + "T12:00:00").toLocaleDateString("de-DE", {
+    day: "2-digit", month: "2-digit",
+  });
+  tip.append(el("div", "tt-head", weekday + ", " + dateStr));
+  tip.append(
+    el(
+      "div",
+      "tt-summary",
+      s.sessions + " Einheit" + (s.sessions !== 1 ? "en" : "") +
+      " · " + fmtNum(s.calories, 0) + " kcal" +
+      (s.sleep_h ? " · Schlaf " + fmtNum(s.sleep_h) + " h" : "")
+    )
+  );
+  const list = el("div", "tt-list");
+  s.activities.forEach((a) => {
+    const row = el("div", "tt-row");
+    const icon = a.sport === "running" ? "🏃" : a.sport === "cycling" ? "🚴" : a.sport === "strength" ? "🏋️" : "📋";
+    const dist = a.distance_km ? fmtNum(a.distance_km) + " km" : null;
+    const parts = [
+      a.name || sportLabel(a.sport),
+      dist,
+      a.duration_min + " min",
+      a.avg_hr ? "HF " + Math.round(a.avg_hr) : null,
+    ].filter(Boolean);
+    row.append(icon, " ");
+    const text = el("span", "", parts.join(" · "));
+    row.append(text);
+    list.append(row);
+  });
+  tip.append(list);
+  return tip;
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".bar-col")) {
+    $$(".chart-tooltip.show").forEach((t) => t.classList.remove("show"));
+  }
+});
 
 function renderZoneBar(shares, minutes) {
   const bar = $("#dashZoneBar");
