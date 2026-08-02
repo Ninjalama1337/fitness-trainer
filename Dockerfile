@@ -13,7 +13,7 @@ COPY backend /app/backend
 COPY frontend /app/frontend
 
 RUN useradd --create-home --uid 10001 appuser && \
-    mkdir -p /data && chown appuser:appuser /data
+    mkdir -p /data /app/data && chown appuser:appuser /data /app/data
 
 USER appuser
 ENV DATABASE_URL=sqlite:////data/fitness.db
