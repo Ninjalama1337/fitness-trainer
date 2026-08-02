@@ -504,6 +504,42 @@ def test_push_to_selected_devices(monkeypatch):
     assert len(results) == 1
 
 
+def test_sleep_parsing_with_list_sleeplevels(monkeypatch):
+    """Alte Garmin-Tage liefern sleepLevels als Liste statt Dict – darf nicht crashen."""
+    from datetime import date
+
+    from backend.app import garmin_sync as g
+    from backend.app.models import HealthDay
+
+    class FakeApi:
+        def get_stats(self, d):
+            return {"restingHeartRate": 46, "totalSteps": 500, "totalKilocalories": 2500}
+
+        def get_sleep_data(self, d):
+            return {
+                "dailySleepDTO": {"sleepTimeSeconds": 33460},
+                "sleepLevels": [{"name": "deep", "seconds": 5400}],  # LISTE!
+                "avgOvernightHrv": 80.0,
+                "hrvStatus": "BALANCED",
+            }
+
+    monkeypatch.setattr("backend.app.garmin_sync._api_get", lambda api, call, retries=3: call())
+    monkeypatch.setattr("backend.app.garmin_sync._user_timezone", lambda api: "UTC")
+    target_date = date.today() - timedelta(days=3)
+    with db.session() as s:
+        existing = s.get(HealthDay, (1, target_date))
+        if existing:
+            s.delete(existing)
+            s.commit()
+        g._sync_health(s, 1, FakeApi(), days=3)
+        s.commit()
+    with db.session() as s:
+        h = s.get(HealthDay, (1, target_date))
+        assert h is not None
+        assert h.sleep_seconds == 33460
+        assert h.hrv_avg == 80.0
+
+
 def test_generate_suggestion_sets_user_id(monkeypatch):
     from backend.app import plan_service
 

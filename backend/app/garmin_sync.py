@@ -152,18 +152,19 @@ def _normalize_activity(a: dict) -> dict:
     }
 
 
-def _api_get(api, call, retries: int = 2):
-    """Führt einen Garmin-API-Call mit kurzem Backoff aus (429/5xx drosseln)."""
+def _api_get(api, call, retries: int = 3):
+    """Führt einen Garmin-API-Call mit Backoff aus (429/5xx drosseln)."""
     for attempt in range(retries + 1):
         try:
             result = call()
-            time.sleep(0.35)  # freundlich zu Garmin bleiben
+            time.sleep(0.6)  # freundlich zu Garmin bleiben
             return result
         except Exception as exc:
             text = str(exc)
             if ("429" in text or "rate limit" in text.lower()) and attempt < retries:
-                logger.info("Garmin 429 erkannt, warte %ss (Versuch %s/2)…", 2 + attempt * 2, attempt + 1)
-                time.sleep(2 + attempt * 2)
+                wait = 2 + attempt * 3
+                logger.info("Garmin 429 erkannt, warte %ss (Versuch %s/3)…", wait, attempt + 1)
+                time.sleep(wait)
                 continue
             raise
     raise RuntimeError("unreachable")
@@ -290,14 +291,16 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
                     or stats.get("activeKilocalories")
                     or stats.get("activeCalories")
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.info("get_stats(%s) fehlgeschlagen: %s", day_str, str(exc)[:120])
         try:
             sleep = _api_get(api, lambda: api.get_sleep_data(day_str))
             if isinstance(sleep, dict):
                 dto = sleep.get("dailySleepDTO") or {}
                 secs = dto.get("sleepTimeSeconds")
-                levels = sleep.get("sleepLevels") or {}
+                levels = sleep.get("sleepLevels")
+                if not isinstance(levels, dict):
+                    levels = {}
                 if not secs:
                     raw_levels = levels.get("levels") or []
                     secs = sum(int(l.get("seconds") or 0) for l in raw_levels) if raw_levels else 0
@@ -318,8 +321,16 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
                 entry.hrv_status = sleep.get("hrvStatus")
                 if not entry.resting_hr:
                     entry.resting_hr = sleep.get("restingHeartRate")
+                logger.info(
+                    "Health %s: schlaf=%s hrv=%s ruhepuls=%s kcal=%s",
+                    day_str,
+                    round((secs or 0) / 3600, 2),
+                    entry.hrv_avg,
+                    entry.resting_hr,
+                    entry.active_calories,
+                )
         except Exception:
-            pass
+            logger.exception("get_sleep_data(%s) fehlgeschlagen", day_str)
         if entry.sleep_seconds or entry.active_calories or entry.steps or entry.hrv_avg or entry.resting_hr:
             s.add(entry)
 
