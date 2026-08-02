@@ -22,4 +22,4 @@ jobs:
             "$KOOMODO_DEPLOY_URL"
       - name: Hinweis
         if: env.KOOMODO_DEPLOY_URL == ''
-        run: echo "Kein Komodo-Webhook konfiguriert – Image liegt unter ghcr.io (Tag: ${{ github.ref_name }})"
+        run: 'echo "Kein Komodo-Webhook konfiguriert – Image liegt unter ghcr.io (Tag: ${{ github.ref_name }})"'
