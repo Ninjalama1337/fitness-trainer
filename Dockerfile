@@ -20,7 +20,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && useradd --create-home --uid 10001 appuser \
     && mkdir -p /data /app/data && chown appuser:appuser /data /app/data
 
-USER appuser
+# Kein USER-Befehl: der Entrypoint startet als Root (chown /data), wechselt dann via gosu zu appuser
 ENV DATABASE_URL=sqlite:////data/fitness.db
 
 EXPOSE 8000
