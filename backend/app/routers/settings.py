@@ -34,5 +34,5 @@ def get_settings(user: User = Depends(auth.get_current_user)):
         "sync_stale": stale,
         "sync_interval_minutes": config.SYNC_INTERVAL_MINUTES,
         "llm": llm.status(user),
-        "version": "1.1.0",
+        "version": "1.2.0",
     }

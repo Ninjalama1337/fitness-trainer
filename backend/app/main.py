@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Fitness Trainer", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="Fitness Trainer", version="1.2.0", lifespan=lifespan)
 
 
 @app.middleware("http")
