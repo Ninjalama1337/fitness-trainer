@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/NINJALAMA/fitness-trainer:latest
+    image: ghcr.io/ninjalama1337/fitness-trainer:latest
     container_name: fitness-trainer
     restart: unless-stopped
     ports:
