@@ -143,7 +143,7 @@ def send_plan_workout(
         try:
             weekday = WEEKDAYS[day.day_offset % 7]
             name = f"{day.focus or 'Training'} ({weekday})"
-            wid = gw.upload_workout(user.id, name, day.sport, day.steps)
+            wid = gw.upload_workout(user.id, name, day.sport, day.steps, day.kraft_steps)
             pushed = gw.push_workout_to_devices(
                 user.id, wid, payload.device_ids if payload else None
             )
@@ -177,14 +177,14 @@ def send_all_plan_workouts(week: str, user: User = Depends(auth.get_current_user
             if day.garmin_workout_id:
                 skipped.append({"id": day.id, "reason": "bereits gesendet"})
                 continue
-            if not gw.sendable(day.sport, day.steps):
-                skipped.append({"id": day.id, "reason": "nicht sendbar (Pause/Kraft/keine Steps)"})
+            if not gw.sendable(day.sport, day.steps, day.kraft_steps):
+                skipped.append({"id": day.id, "reason": "nicht sendbar (keine Steps/Übungen)"})
                 continue
             try:
                 if devices is None:
                     devices = gw.list_devices(user.id)
                 target_ids = gw.default_device_ids(devices, day.sport)
-                wid = gw.upload_workout(user.id, f"{day.focus or 'Training'} W{week}", day.sport, day.steps)
+                wid = gw.upload_workout(user.id, f"{day.focus or 'Training'} W{week}", day.sport, day.steps, day.kraft_steps)
                 gw.push_workout_to_devices(user.id, wid, target_ids)
                 day.garmin_workout_id = wid
                 sent.append({"id": day.id, "workout_id": wid, "devices": target_ids})

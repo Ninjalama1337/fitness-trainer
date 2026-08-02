@@ -1,22 +1,28 @@
 """Strukturierte Workouts (aus KI-Steps) an Garmin Connect senden."""
+import logging
 import re
 
+from garminconnect import exercises
 from garminconnect.workout import (
     CyclingWorkout,
     ExecutableStep,
     FitnessEquipmentWorkout,
     RunningWorkout,
+    StrengthWorkout,
     StepType,
     create_cooldown_step,
     create_interval_step,
     create_recovery_step,
+    create_strength_set,
     create_warmup_step,
 )
 
 from . import garmin_sync as g
 
+logger = logging.getLogger("fitness")
+
 STEP_TYPES = {"warmup", "interval", "recovery", "cooldown", "rest"}
-SENDABLE_SPORTS = {"running": RunningWorkout, "cycling": CyclingWorkout}
+SENDABLE_SPORTS = {"running": RunningWorkout, "cycling": CyclingWorkout, "strength": StrengthWorkout}
 
 HR_ZONE_TARGET = {
     "workoutTargetTypeId": 4,
@@ -73,8 +79,106 @@ def _step(typ: str, dauer_min: float, zone: int | None, order: int) -> Executabl
     )
 
 
-def build_workout(name: str, sport: str, steps: list) -> dict:
+def _norm_de(s: str) -> str:
+    return (
+        s.lower()
+        .replace("ü", "ue")
+        .replace("ö", "oe")
+        .replace("ä", "ae")
+        .replace("ß", "ss")
+        .strip()
+    )
+
+
+# Deutsche Übungsbegriffe → englischer Katalog-Begriff
+DE_EXERCISE_MAP: dict[str, str] = {
+    "kniebeuge": "squat",
+    "kniebeugen": "squat",
+    "bankdruecken": "bench press",
+    "bankpressen": "bench press",
+    "kreuzheben": "deadlift",
+    "klimmzug": "pull-up",
+    "klimmzuege": "pull-up",
+    "liegestuetz": "push-up",
+    "liegestuetze": "push-up",
+    "rudern": "barbell row",
+    "schulterdruecken": "shoulder press",
+    "ausfallschritt": "lunge",
+    "ausfallschritte": "lunge",
+    "dips": "dip",
+    "plank": "plank",
+    "unterarmstuetz": "plank",
+    "bizepscurl": "dumbbell curl",
+    "bizeps": "dumbbell curl",
+    "curl": "dumbbell curl",
+    "curls": "dumbbell curl",
+    "trizeps": "triceps extension",
+    "trizepsdruecken": "triceps extension",
+    "crunch": "crunch",
+    "crunches": "crunch",
+    "rumpfbeuge": "crunch",
+    "wadenheben": "calf raise",
+    "seitheben": "lateral raise",
+    "beinstrecker": "leg extension",
+    "beinbeuger": "leg curl",
+    "hip thrust": "hip thrust",
+    "glute bridge": "glute bridge",
+    "ghd": "hyperextension",
+    "butterfly": "butterfly",
+    "latzug": "lat pulldown",
+    "latzug": "lat pulldown",
+    "kabelzug": "cable",
+    "hantel": "dumbbell",
+    "langhantel": "barbell",
+}
+
+
+def _resolve_exercise(uebung: str) -> tuple[str, str] | None:
+    """Übungsname (DE/EN) → (category, exercise) aus dem Garmin-Katalog."""
+    norm = _norm_de(uebung)
+    term = DE_EXERCISE_MAP.get(norm) or DE_EXERCISE_MAP.get(norm.split(" ")[0]) or uebung
+
+    def find_all(t: str) -> list:
+        try:
+            return exercises.find(t)
+        except Exception:
+            return []
+
+    matches = find_all(term)
+    if not matches:
+        matches = find_all(term.split(" ")[0])
+    if not matches:
+        return None
+    # Bevorzugt exakte/ab-Heftige Treffer (z.B. "Squat" statt "Banded Squat")
+    term_norm = _norm_de(term)
+    best = next(
+        (m for m in matches if _norm_de(m.get("name", "")) == term_norm),
+        None,
+    )
+    if not best:
+        best = next(
+            (m for m in matches if _norm_de(m.get("name", "")).startswith(term_norm)),
+            None,
+        )
+    if not best:
+        best = next(
+            (
+                m
+                for m in matches
+                if _norm_de(m.get("exercise", "")).replace("_", " ") == term_norm
+            ),
+            None,
+        )
+    best = best or matches[0]
+    return best.get("category"), best.get("exercise")
+
+
+def build_workout(name: str, sport: str, steps: list, kraft_steps: list | None = None) -> dict:
     """Baut das Garmin-Workout-JSON aus den KI-Steps."""
+    if sport == "strength":
+        if not kraft_steps:
+            raise NoStepsError()
+        return _build_strength_workout(name, kraft_steps)
     if not steps:
         raise NoStepsError()
     model_cls = SENDABLE_SPORTS.get(sport)
@@ -105,6 +209,55 @@ def build_workout(name: str, sport: str, steps: list) -> dict:
     return workout.to_dict()
 
 
+def _build_strength_workout(name: str, kraft_steps: list) -> dict:
+    """Kraft-Workout mit Sätzen/Wiederholungen/Gewicht (RepeatGroups)."""
+    workout_steps = []
+    order = 1
+    skipped = []
+    for s in kraft_steps:
+        uebung = str(s.get("uebung", "")).strip()
+        resolved = _resolve_exercise(uebung)
+        if not resolved:
+            skipped.append(uebung)
+            logger.info("Übung nicht im Garmin-Katalog: %s", uebung)
+            continue
+        category, exercise = resolved
+        rest_sec = 60 if s.get("saetze", 3) > 3 else 90
+        try:
+            group = create_strength_set(
+                category=category,
+                step_order=order,
+                sets=int(s.get("saetze", 3)),
+                reps=int(s.get("wiederholungen", 10)),
+                rest_seconds=float(rest_sec),
+                exercise_name=exercise,
+                weight_kg=s.get("gewicht_kg"),
+            )
+        except Exception as exc:
+            logger.info("Kraft-Step fehlgeschlagen (%s): %s", uebung, exc)
+            skipped.append(uebung)
+            continue
+        workout_steps.append(group)
+        order += 3
+    if not workout_steps:
+        raise NoStepsError()
+    if skipped:
+        name = (name[:40] + " …") if len(skipped) > 1 else name
+    workout = StrengthWorkout(
+        workoutName=name[:50],
+        estimatedDurationInSecs=max(1800, order * 60),
+        workoutSegments=[
+            {
+                "segmentOrder": 1,
+                "sportType": StrengthWorkout.model_fields["sportType"].default_factory(),
+                "workoutSteps": workout_steps,
+            }
+        ],
+        description=name,
+    )
+    return workout.to_dict()
+
+
 def _connected_api(user_id: int):
     api = g._api(user_id)
     try:
@@ -118,8 +271,14 @@ def _connected_api(user_id: int):
     return api
 
 
-def upload_workout(user_id: int, name: str, sport: str, steps: list) -> str:
-    payload = build_workout(name, sport, steps)
+def upload_workout(
+    user_id: int,
+    name: str,
+    sport: str,
+    steps: list,
+    kraft_steps: list | None = None,
+) -> str:
+    payload = build_workout(name, sport, steps, kraft_steps)
     api = _connected_api(user_id)
     try:
         result = api.upload_workout(payload)
@@ -252,5 +411,7 @@ def push_workout_to_devices(
     return results
 
 
-def sendable(sport: str, steps: list | None) -> bool:
+def sendable(sport: str, steps: list | None, kraft_steps: list | None = None) -> bool:
+    if sport == "strength":
+        return bool(kraft_steps)
     return sport in SENDABLE_SPORTS and bool(steps)

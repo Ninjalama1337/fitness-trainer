@@ -27,6 +27,7 @@ def _to_dict(d: PlanDay) -> dict:
         "description": d.description,
         "done": d.done,
         "steps": d.steps,
+        "kraft_steps": d.kraft_steps,
         "garmin_workout_id": d.garmin_workout_id,
     }
 

@@ -90,8 +90,8 @@ Regeln:
 - Kurze, konkrete Beschreibungen mit Dauer/Umfang (z.B. '45 min locker, Zone 2')
 
 Antworte als JSON:
-{{"plan": [{{"tag": 0, "sport": "running|cycling|strength|rest", "fokus": "Kurzer Titel", "beschreibung": "Konkrete Anweisung", "steps": [{{"typ": "warmup|interval|recovery|cooldown|rest", "dauer_min": 10, "zone": 3}}]}}]}}
-"tag" ist 0=Montag bis 6=Sonntag. Nur Tage mit sport != rest und sport != strength brauchen steps (in Minuten, zone optional 1-5, bei Intervallen auch rest-steps dazwischen). Bei sport == rest ODER strength: "steps": null."""
+{{"plan": [{{"tag": 0, "sport": "running|cycling|strength|rest", "fokus": "Kurzer Titel", "beschreibung": "Konkrete Anweisung", "steps": [{{"typ": "warmup|interval|recovery|cooldown|rest", "dauer_min": 10, "zone": 3}}], "kraft_steps": null}}]}}
+"tag" ist 0=Montag bis 6=Sonntag. Nur Tage mit sport != rest brauchen steps (in Minuten, zone optional 1-5, bei Intervallen auch rest-steps dazwischen). Bei sport == rest: "steps": null. Bei sport == strength: "steps": null und stattdessen "kraft_steps": [{{"uebung": "Kniebeuge", "saetze": 3, "wiederholungen": 10, "gewicht_kg": 60}}] mit 5-8 verschiedenen Übungen (Krafttage mit Wiederholungszahlen und Gewichten planen)."""
     db_user = auth.get_user(user_id)
     try:
         result = llm.chat_json(system, user, db_user)
@@ -113,6 +113,7 @@ Antworte als JSON:
                 focus=str(item.get("fokus", item.get("focus", ""))),
                 description=str(item.get("beschreibung", item.get("description", ""))),
                 steps=_clean_steps(steps),
+                kraft_steps=_clean_strength_steps(item.get("kraft_steps")),
             )
             s.add(day)
             created.append(day)
@@ -186,8 +187,8 @@ Regeln:
 - Kurze konkrete Beschreibungen mit Dauer/Umfang (z.B. '45 min locker, Zone 2')
 
 Antworte als JSON:
-{{"weeks": [{{"woche": 1, "fokus": "Wochentitel", "tage": [{{"tag": 0, "sport": "running|cycling|strength|rest", "fokus": "Titel", "beschreibung": "Anweisung", "steps": [{{"typ": "warmup|interval|recovery|cooldown|rest", "dauer_min": 10, "zone": 3}}]}}]}}]}}
-"tag" 0=Montag bis 6=Sonntag. Nur running/cycling-Tage brauchen steps; rest/strength: steps null."""
+{{"weeks": [{{"woche": 1, "fokus": "Wochentitel", "tage": [{{"tag": 0, "sport": "running|cycling|strength|rest", "fokus": "Titel", "beschreibung": "Anweisung", "steps": [{{"typ": "warmup|interval|recovery|cooldown|rest", "dauer_min": 10, "zone": 3}}], "kraft_steps": null}}]}}]}}
+"tag" 0=Montag bis 6=Sonntag. Nur running/cycling-Tage brauchen steps; rest: steps null. Bei strength-Tagen: steps null und "kraft_steps": [{{"uebung": "Kniebeuge", "saetze": 3, "wiederholungen": 10, "gewicht_kg": 60}}] mit 5-8 Übungen."""
     db_user = auth.get_user(user_id)
     try:
         result = llm.chat_json(system, user, db_user, max_tokens=16000)
@@ -250,6 +251,7 @@ Antworte als JSON:
                     focus=focus,
                     description=description,
                     steps=steps,
+                    kraft_steps=_clean_strength_steps(td.get("kraft_steps")),
                     race_goal_id=race.id,
                 )
                 s.add(day)
@@ -299,6 +301,38 @@ def _clean_steps(steps) -> list | None:
         if zone is not None and not 1 <= zone <= 5:
             zone = None
         cleaned.append({"typ": typ, "dauer_min": round(dauer, 1), "zone": zone})
+    return cleaned or None
+
+
+def _clean_strength_steps(steps) -> list | None:
+    """Validiert Kraft-Steps: [{uebung, saetze, wiederholungen, gewicht_kg}]."""
+    if not isinstance(steps, list) or not steps:
+        return None
+    cleaned = []
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        uebung = str(s.get("uebung") or s.get("exercise") or s.get("name") or "").strip()
+        if not uebung:
+            continue
+        try:
+            saetze = int(s.get("saetze") or s.get("sets") or 3)
+            wiederholungen = int(s.get("wiederholungen") or s.get("reps") or 10)
+        except (TypeError, ValueError):
+            continue
+        gewicht = s.get("gewicht_kg") or s.get("weight_kg")
+        try:
+            gewicht = round(float(gewicht), 1) if gewicht is not None else None
+        except (TypeError, ValueError):
+            gewicht = None
+        cleaned.append(
+            {
+                "uebung": uebung,
+                "saetze": max(1, saetze),
+                "wiederholungen": max(1, wiederholungen),
+                "gewicht_kg": gewicht,
+            }
+        )
     return cleaned or None
 
 

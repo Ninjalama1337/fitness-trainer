@@ -61,7 +61,8 @@ function stepLabel(typ) {
   return { warmup: "Aufwärmen", interval: "Intervall", recovery: "Erholung", cooldown: "Auslaufen", rest: "Pause" }[typ] || typ;
 }
 
-function canSend(sport, steps) {
+function canSend(sport, steps, kraftSteps) {
+  if (sport === "strength") return Array.isArray(kraftSteps) && kraftSteps.length > 0;
   return (sport === "running" || sport === "cycling") && Array.isArray(steps) && steps.length > 0;
 }
 
@@ -666,7 +667,15 @@ async function loadPlan(week) {
     );
     body.append(meta, el("div", "plan-focus", d.focus || d.description || "Einheit"));
     if (d.description && d.description !== d.focus) body.append(el("div", "plan-desc", d.description));
-    if (d.garmin_workout_id || canSend(d.sport, d.steps)) {
+    if (d.kraft_steps && d.kraft_steps.length) {
+      const steps = el("div", "s-steps");
+      d.kraft_steps.forEach((k) =>
+        steps.append(el("span", "s-step",
+          k.saetze + "×" + k.wiederholungen + " " + k.uebung + (k.gewicht_kg ? " (" + fmtNum(k.gewicht_kg) + " kg)" : "")))
+      );
+      body.append(steps);
+    }
+    if (d.garmin_workout_id || canSend(d.sport, d.steps, d.kraft_steps)) {
       const sr = el("div", "send-row");
       if (d.garmin_workout_id) {
         sr.append(el("span", "send-msg", "✓ Auf Garmin"));

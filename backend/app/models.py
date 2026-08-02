@@ -69,6 +69,7 @@ class PlanDay(SQLModel, table=True):
     description: str = ""
     done: bool = False
     steps: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    kraft_steps: Optional[list] = Field(default=None, sa_column=Column(JSON))
     garmin_workout_id: Optional[str] = None
     race_goal_id: Optional[int] = None
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)

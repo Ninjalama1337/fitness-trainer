@@ -67,6 +67,10 @@ def _migrate_columns() -> None:
         _add_columns("plan_days", {"race_goal_id": "INTEGER"})
     except Exception:
         pass
+    try:
+        _add_columns("plan_days", {"kraft_steps": "JSON"})
+    except Exception:
+        pass
 
 
 def _migrate_existing_data() -> None:

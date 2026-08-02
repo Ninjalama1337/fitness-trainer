@@ -445,9 +445,38 @@ def test_build_workout_unsupported():
     from backend.app.garmin_workouts import UnsupportedSportError, build_workout
 
     try:
-        build_workout("Kraft", "strength", STEPS)
+        build_workout("Schwimmen", "swimming", STEPS)
         assert False
     except UnsupportedSportError:
+        pass
+
+
+def test_build_workout_strength():
+    from backend.app.garmin_workouts import build_workout
+
+    w = build_workout(
+        "Ganzkörper",
+        "strength",
+        None,
+        kraft_steps=[
+            {"uebung": "Kniebeuge", "saetze": 3, "wiederholungen": 10, "gewicht_kg": 60},
+            {"uebung": "Bankdrücken", "saetze": 3, "wiederholungen": 8, "gewicht_kg": 50},
+        ],
+    )
+    assert w["sportType"]["sportTypeKey"] == "strength_training"
+    steps = w["workoutSegments"][0]["workoutSteps"]
+    assert len(steps) == 2
+    assert steps[0]["type"] == "RepeatGroupDTO"
+    assert steps[0]["numberOfIterations"] == 3
+
+
+def test_build_workout_strength_no_exercises():
+    from backend.app.garmin_workouts import NoStepsError, build_workout
+
+    try:
+        build_workout("Kraft", "strength", None, kraft_steps=[])
+        assert False
+    except NoStepsError:
         pass
 
 
