@@ -1,0 +1,13 @@
+{
+  "name": "Fitness Trainer",
+  "short_name": "Fitness",
+  "description": "Trainingsplanung mit Garmin-Daten und KI-Vorschlägen",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1220",
+  "theme_color": "#0d1220",
+  "lang": "de",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

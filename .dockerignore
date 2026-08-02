@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+fitness.db*
+*.log
+.git/
+.github/
+tests/
+backend/tests/
+README.md
+docker-compose.yml

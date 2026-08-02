@@ -1,0 +1,25 @@
+name: Deploy (Komodo Webhook)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Komodo-Webhook auslösen
+        if: env.KOOMODO_DEPLOY_URL != ''
+        env:
+          KOOMODO_DEPLOY_URL: ${{ secrets.KOOMODO_DEPLOY_URL }}
+          KOOMODO_DEPLOY_KEY: ${{ secrets.KOOMODO_DEPLOY_KEY }}
+        run: |
+          curl -fsS -m 60 \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${KOOMODO_DEPLOY_KEY}" \
+            -d '{"tag": "${{ github.ref_name }}", "event": "release"}' \
+            "$KOOMODO_DEPLOY_URL"
+      - name: Hinweis
+        if: env.KOOMODO_DEPLOY_URL == ''
+        run: echo "Kein Komodo-Webhook konfiguriert – Image liegt unter ghcr.io (Tag: ${{ github.ref_name }})"

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1220">
+  <title>Fitness Trainer</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <link rel="stylesheet" href="/css/style.css?v=3">
+</head>
+<body>
+  <div id="themeScript"></div>
+
+  <!-- Login -->
+  <div id="loginScreen" class="login-screen" hidden>
+    <div class="login-hero">
+      <div class="login-logo">⚡</div>
+      <h1>Fitness Trainer</h1>
+      <p>Garmin-Daten. KI-Trainingsplan. Deine Uhr.</p>
+    </div>
+    <div class="login-card">
+      <div class="login-title">Anmelden</div>
+      <label class="field-label" for="loginUsername">Benutzername</label>
+      <input type="text" id="loginUsername" class="text-input" autocomplete="username" placeholder="admin">
+      <label class="field-label" for="loginPassword">Passwort</label>
+      <input type="password" id="loginPassword" class="text-input" autocomplete="current-password" placeholder="••••••••">
+      <button class="btn primary" id="loginBtn">Anmelden</button>
+      <p class="login-error muted" id="loginError" hidden></p>
+      <p class="muted small" style="text-align:center;margin-top:14px">Konten legt der Admin an.</p>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="appRoot" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="logo">⚡</span><span>Fitness</span></div>
+      <div class="topbar-right">
+        <button id="themeToggle" class="icon-btn" title="Design wechseln">🌗</button>
+        <div id="syncBadge" class="sync-badge" title="Sync-Status">…</div>
+        <div class="userchip" id="userChip">
+          <span id="userInitial">?</span>
+          <div class="user-menu" id="userMenu" hidden>
+            <div class="user-menu-info"><b id="menuName"></b><span id="menuUser"></span></div>
+            <button class="menu-item" id="logoutBtn">Abmelden</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="view-dashboard" class="view active">
+        <div class="rings" id="dashRings"></div>
+        <div class="cards" id="dashCards"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Letzte Woche</h2><span class="panel-sub" id="dashBarLabel">7 Tage</span></div>
+          <div class="barchart" id="dashBarChart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Pulszonen</h2><span class="panel-sub" id="dashZoneTotal"></span></div>
+          <div class="stackedbar" id="dashZoneBar"></div>
+          <div class="zone-legend" id="dashZoneLegend"></div>
+        </div>
+      </section>
+
+      <section id="view-plan" class="view">
+        <div class="panel">
+          <div class="row-between">
+            <h2>Trainingswoche</h2>
+            <div class="weeknav">
+              <button class="wnav" id="weekPrev">‹</button>
+              <span id="planWeek" class="muted"></span>
+              <button class="wnav" id="weekNext">›</button>
+            </div>
+          </div>
+          <p class="muted" id="planHint">Generiere einen 7-Tage-Plan mit KI auf Basis deiner Garmin-Daten.</p>
+          <button class="btn primary" id="planGenerate">Plan generieren</button>
+          <button class="btn" id="planSendAll">Alle Tage an Garmin senden</button>
+          <div id="planList" class="plan-list"></div>
+        </div>
+      </section>
+
+      <section id="view-activities" class="view">
+        <div class="panel">
+          <div class="chips" id="sportChips"></div>
+          <div id="activityList" class="activity-list"></div>
+        </div>
+        <div class="panel">
+          <h2>FIT-Datei-Upload</h2>
+          <p class="muted">Fallback: Lade Aktivitäten als FIT-Dateien von Garmin Connect hoch.</p>
+          <input type="file" id="fitFiles" accept=".fit" multiple>
+          <button class="btn" id="fitUpload">Hochladen</button>
+          <div id="uploadResult" class="muted"></div>
+        </div>
+      </section>
+
+      <section id="view-suggestion" class="view">
+        <div class="panel">
+          <h2>Heutiges Training</h2>
+          <p class="muted">Die KI analysiert deine letzten Einheiten und empfiehlt das heutige Workout.</p>
+          <button class="btn primary" id="suggGenerate">Vorschlag generieren</button>
+          <div id="suggestionBox"></div>
+          <p class="muted small" style="margin-top:10px">Nach dem Senden die Uhr einmal mit Garmin Connect syncen – das Workout erscheint auf der Uhr unter „Trainieren → Workouts“.</p>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view">
+        <div class="panel">
+          <div class="panel-head"><h2>Garmin verbinden</h2></div>
+          <p class="muted" id="garminStatus"></p>
+          <label class="field-label" for="garminEmail">E-Mail</label>
+          <input type="email" id="garminEmail" class="text-input" placeholder="deine@email.de" autocomplete="off">
+          <label class="field-label" for="garminPassword">Passwort</label>
+          <input type="password" id="garminPassword" class="text-input" placeholder="Passwort" autocomplete="off">
+          <button class="btn primary" id="garminSave">Login speichern</button>
+          <div id="mfaBox" class="mfa-box" hidden>
+            <p class="muted">Garmin verlangt einen Bestätigungscode (2FA). Prüfe Garmin-App/E-Mail.</p>
+            <input type="text" id="mfaCode" class="text-input" placeholder="6-stelliger Code" inputmode="numeric">
+            <button class="btn" id="mfaSubmit">Code senden & synchronisieren</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>KI (LLM)</h2><span class="panel-sub">optional überschreibbar</span></div>
+          <p class="muted" id="llmStatus"></p>
+          <label class="field-label" for="llmProvider">Provider</label>
+          <select id="llmProvider" class="text-input">
+            <option value="">Standard (Global)</option>
+            <option value="opencode">OpenCode Go</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="ollama">Ollama (lokal)</option>
+          </select>
+          <label class="field-label" for="llmBase">Basis-URL <span class="muted small">(optional)</span></label>
+          <input type="text" id="llmBase" class="text-input" placeholder="https://…">
+          <label class="field-label" for="llmKey">API-Key <span class="muted small">(optional, leer = Standard)</span></label>
+          <input type="password" id="llmKey" class="text-input" placeholder="sk-…" autocomplete="off">
+          <label class="field-label" for="llmModel">Modell <span class="muted small">(optional)</span></label>
+          <input type="text" id="llmModel" class="text-input" placeholder="z.B. deepseek-v4-flash">
+          <button class="btn" id="llmSave">LLM-Konfiguration speichern</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Status</h2></div>
+          <div id="settingsStatus" class="status-list"></div>
+          <button class="btn" id="syncNow">Jetzt synchronisieren</button>
+        </div>
+        <div id="adminPanel" class="panel" hidden>
+          <div class="panel-head"><h2>Benutzerverwaltung</h2><span class="panel-sub">Admin</span></div>
+          <div id="userList" class="user-list"></div>
+          <div class="divider"></div>
+          <label class="field-label" for="newUserName">Benutzername</label>
+          <input type="text" id="newUserName" class="text-input" placeholder="z.B. anna">
+          <label class="field-label" for="newUserPass">Passwort (min. 8 Zeichen)</label>
+          <input type="password" id="newUserPass" class="text-input" placeholder="••••••••" autocomplete="new-password">
+          <label class="field-label" for="newUserDisplay">Anzeigename <span class="muted small">(optional)</span></label>
+          <input type="text" id="newUserDisplay" class="text-input" placeholder="Anna">
+          <button class="btn" id="createUserBtn">Benutzer anlegen</button>
+        </div>
+        <div class="panel">
+          <h2>Installieren</h2>
+          <p class="muted">Im Browser-Menü: „App installieren“ – so landet die App auf deinem Homescreen.</p>
+        </div>
+        <div class="panel muted small">KI-Trainingsvorschläge sind keine medizinische Beratung. Hör auf deinen Körper.</div>
+      </section>
+    </main>
+
+    <nav class="bottomnav">
+      <button data-view="dashboard" class="active"><span>📊</span>Dashboard</button>
+      <button data-view="plan"><span>🗓️</span>Plan</button>
+      <button data-view="activities"><span>🏃</span>Aktivitäten</button>
+      <button data-view="suggestion"><span>💡</span>Vorschlag<span class="nav-badge" id="suggBadge" hidden></span></button>
+      <button data-view="settings"><span>⚙️</span>Einstellungen</button>
+    </nav>
+  </div>
+
+  <!-- Bottom Sheet -->
+  <div class="sheet-overlay" id="sheetOverlay" hidden></div>
+  <div class="sheet" id="activitySheet" hidden>
+    <div class="sheet-grab"></div>
+    <div id="sheetContent"></div>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script src="/js/app.js?v=3"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+services:
+  app:
+    image: ghcr.io/NINJALAMA/fitness-trainer:latest
+    container_name: fitness-trainer
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY muss gesetzt werden}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD muss gesetzt werden}
+      - LLM_PROVIDER=${LLM_PROVIDER:-opencode}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://opencode.ai/zen/go/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8000}
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-360}
+      - SYNC_STALE_HOURS=${SYNC_STALE_HOURS:-24}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
