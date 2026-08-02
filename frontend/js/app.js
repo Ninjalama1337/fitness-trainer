@@ -65,6 +65,16 @@ function canSend(sport, steps) {
   return (sport === "running" || sport === "cycling") && Array.isArray(steps) && steps.length > 0;
 }
 
+function fmtLocal(iso, withDate = true) {
+  if (!iso) return "–";
+  const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z");
+  if (isNaN(d)) return iso;
+  const opts = withDate
+    ? { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit" };
+  return d.toLocaleString("de-DE", opts);
+}
+
 function notify(title, body) {
   if ("Notification" in window && Notification.permission === "granted") {
     try { new Notification(title, { body, icon: "/icons/icon.svg" }); } catch (e) {}
@@ -194,7 +204,7 @@ async function refreshSettings() {
   badge.title = settings.sync_message || "";
   badge.textContent =
     settings.sync_status === "ok"
-      ? "✓ " + (settings.last_sync ? settings.last_sync.slice(11, 16) : "")
+      ? "✓ " + fmtLocal(settings.last_sync, false)
       : settings.sync_status === "never" ? "Kein Sync" : settings.sync_status === "mfa" ? "2FA nötig" : "Sync-Fehler";
 }
 
@@ -567,7 +577,7 @@ async function loadSuggestion() {
     s.steps.forEach((st) => steps.append(el("span", "s-step", stepLabel(st.typ) + " · " + st.dauer_min + " min" + (st.zone ? " · Z" + st.zone : ""))));
     card.append(steps);
   }
-  card.append(el("div", "s-time", "Erstellt am " + s.created_at.slice(0, 16).replace("T", " ")));
+  card.append(el("div", "s-time", "Erstellt am " + fmtLocal(s.created_at)));
   if (s.garmin_workout_id) {
     const sr = el("div", "send-row");
     sr.append(el("span", "send-msg", "✓ Auf Garmin gesendet"));
@@ -638,7 +648,7 @@ async function loadSettings() {
   st.innerHTML = "";
   const rows = [
     ["Garmin", s.garmin_configured ? (s.sync_status === "ok" ? "Verbunden" : s.sync_status === "mfa" ? "2FA nötig" : "Konfiguriert") : "Nicht verbunden", s.garmin_configured ? (s.sync_status === "ok" ? "ok" : "warn") : "err"],
-    ["Letzter Sync", s.last_sync ? s.last_sync.slice(0, 16).replace("T", " ") + (s.sync_stale ? " (veraltet)" : "") : "Nie", s.sync_stale ? "warn" : "ok"],
+    ["Letzter Sync", s.last_sync ? fmtLocal(s.last_sync) + (s.sync_stale ? " (veraltet)" : "") : "Nie", s.sync_stale ? "warn" : "ok"],
     ["LLM Provider", s.llm.provider + (s.llm.model ? " · " + s.llm.model : ""), s.llm.configured ? "ok" : "err"],
   ];
   rows.forEach(([k, v, cls]) => {

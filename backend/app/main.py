@@ -10,6 +10,7 @@ from . import auth, config, db, garmin_sync
 from .routers import (
     activities,
     auth as auth_router,
+    debug,
     garmin,
     plan,
     settings,
@@ -89,6 +90,7 @@ app.include_router(upload.router)
 app.include_router(plan.router)
 app.include_router(suggestion.router)
 app.include_router(settings.router)
+app.include_router(debug.router)
 
 
 @app.get("/api/health")

@@ -1,9 +1,9 @@
-const CACHE = "fitness-trainer-v3";
+const CACHE = "fitness-trainer-v4";
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/style.css?v=3",
-  "/js/app.js?v=3",
+  "/css/style.css?v=4",
+  "/js/app.js?v=4",
   "/manifest.json",
   "/icons/icon.svg",
 ];

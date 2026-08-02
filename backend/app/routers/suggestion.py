@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/suggestion", tags=["suggestion"])
 def _to_dict(s: Suggestion) -> dict:
     return {
         "id": s.id,
-        "created_at": s.created_at.isoformat(),
+        "created_at": (s.created_at.isoformat() + "Z"),
         "title": s.title,
         "sport": s.sport,
         "rationale": s.rationale,

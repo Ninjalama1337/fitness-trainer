@@ -30,7 +30,7 @@ def get_settings(user: User = Depends(auth.get_current_user)):
         "garmin_email": garmin_sync.masked_email(user.id),
         "sync_status": sync_status,
         "sync_message": sync_message,
-        "last_sync": last_sync.isoformat() if last_sync else None,
+        "last_sync": (last_sync.isoformat() + "Z") if last_sync else None,
         "sync_stale": stale,
         "sync_interval_minutes": config.SYNC_INTERVAL_MINUTES,
         "llm": llm.status(user),
