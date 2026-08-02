@@ -12,7 +12,9 @@ from .routers import (
     auth as auth_router,
     debug,
     garmin,
+    goals,
     plan,
+    race,
     settings,
     stats,
     suggestion,
@@ -83,6 +85,8 @@ async def csrf_protect(request: Request, call_next):
 
 app.include_router(auth_router.router)
 app.include_router(users.router)
+app.include_router(goals.router)
+app.include_router(race.router)
 app.include_router(activities.router)
 app.include_router(stats.router)
 app.include_router(garmin.router)

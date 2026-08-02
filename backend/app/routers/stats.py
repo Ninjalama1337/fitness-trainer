@@ -261,6 +261,93 @@ def trend(
     return {"period": period, "buckets": ordered, "totals": totals}
 
 
+@router.get("/pbs")
+def personal_bests(user: User = Depends(auth.get_current_user)):
+    """Beste Leistungen für 5k/10k/Halbmarathon/Marathon (Gesamtpace der Einheit)."""
+    with session() as s:
+        runs = s.exec(
+            select(Activity).where(
+                Activity.user_id == user.id,
+                Activity.sport == "running",
+                Activity.distance_km.isnot(None),
+            )
+        ).all()
+    targets = [(5.0, "5k"), (10.0, "10k"), (21.1, "Halbmarathon"), (42.2, "Marathon")]
+    out = []
+    for dist, label in targets:
+        candidates = [a for a in runs if (a.distance_km or 0) >= dist * 0.98]
+        if not candidates:
+            continue
+        best = min(
+            candidates,
+            key=lambda a: (
+                (a.avg_pace_min_km or 0)
+                if a.avg_pace_min_km
+                else (a.duration_seconds / max(a.distance_km or 1, 0.001) / 60)
+            ),
+        )
+        pace = best.avg_pace_min_km or (best.duration_seconds / max(best.distance_km or 1, 0.001) / 60)
+        out.append(
+            {
+                "label": label,
+                "distance_km": dist,
+                "time_seconds": int(pace * 60 * dist),
+                "pace_min_km": round(pace, 2),
+                "date": best.start_time.date().isoformat(),
+                "activity_name": best.name,
+                "activity_distance_km": round(best.distance_km, 1),
+            }
+        )
+    return {"items": out}
+
+
+@router.get("/load")
+def training_load(user: User = Depends(auth.get_current_user)):
+    """Akute (7 Tage) und chronische (28 Tage) Trainingsbelastung + Verhältnis."""
+    now = datetime.now()
+    since_28 = now - timedelta(days=28)
+    since_7 = now - timedelta(days=7)
+    with session() as s:
+        acts = s.exec(
+            select(Activity).where(
+                Activity.user_id == user.id,
+                Activity.start_time >= since_28,
+                Activity.training_load.isnot(None),
+            )
+        ).all()
+
+    def load_since(since: datetime) -> float:
+        return sum(a.training_load or 0 for a in acts if a.start_time >= since)
+
+    acute = round(load_since(since_7), 1)
+    chronic = round(load_since(since_28) / 4, 1)  # Wochenschnitt über 4 Wochen
+    ratio = round(acute / chronic, 2) if chronic > 0 else None
+    zone = "optimal"
+    if ratio is not None:
+        if ratio < 0.8:
+            zone = "unterlastet"
+        elif ratio > 1.5:
+            zone = "überlastet"
+        elif ratio > 1.3:
+            zone = "erhöht"
+    days_with_training = len({a.start_time.date() for a in acts})
+    return {
+        "acute_7d": acute,
+        "chronic_28d": chronic,
+        "ratio": ratio,
+        "zone": zone,
+        "training_days_28d": days_with_training,
+        "loads": [
+            {
+                "date": a.start_time.date().isoformat(),
+                "load": round(a.training_load or 0, 1),
+                "sport": a.sport,
+            }
+            for a in sorted(acts, key=lambda x: x.start_time)
+        ],
+    }
+
+
 @router.get("/zones")
 def zone_stats(
     user: User = Depends(auth.get_current_user),

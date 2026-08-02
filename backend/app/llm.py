@@ -69,7 +69,7 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def _chat_openai_compatible(cfg: dict, system: str, user: str, json_mode: bool) -> str:
+def _chat_openai_compatible(cfg: dict, system: str, user: str, json_mode: bool, max_tokens: int | None = None) -> str:
     headers = {"Content-Type": "application/json"}
     if cfg["api_key"]:
         headers["Authorization"] = f"Bearer {cfg['api_key']}"
@@ -80,7 +80,7 @@ def _chat_openai_compatible(cfg: dict, system: str, user: str, json_mode: bool) 
             {"role": "user", "content": user},
         ],
         "temperature": 0.7,
-        "max_tokens": int(config.get("LLM_MAX_TOKENS") or 8000),
+        "max_tokens": int(max_tokens or config.get("LLM_MAX_TOKENS") or 8000),
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
@@ -96,7 +96,7 @@ def _chat_openai_compatible(cfg: dict, system: str, user: str, json_mode: bool) 
     if r.status_code != 200:
         detail = r.text[:300]
         if json_mode and r.status_code == 400 and "response_format" in detail:
-            return _chat_openai_compatible(cfg, system, user, json_mode=False)
+            return _chat_openai_compatible(cfg, system, user, json_mode=False, max_tokens=max_tokens)
         raise LlmError(f"LLM-API Fehler {r.status_code}: {detail}")
     data = r.json()
     try:
@@ -105,7 +105,7 @@ def _chat_openai_compatible(cfg: dict, system: str, user: str, json_mode: bool) 
         raise LlmError(f"Unerwartete LLM-Antwort: {data}") from exc
 
 
-def _chat_anthropic(cfg: dict, system: str, user: str, json_mode: bool) -> str:
+def _chat_anthropic(cfg: dict, system: str, user: str, json_mode: bool, max_tokens: int | None = None) -> str:
     headers = {
         "Content-Type": "application/json",
         "x-api-key": cfg["api_key"],
@@ -115,7 +115,7 @@ def _chat_anthropic(cfg: dict, system: str, user: str, json_mode: bool) -> str:
         "model": cfg["model"],
         "system": system,
         "messages": [{"role": "user", "content": user}],
-        "max_tokens": int(config.get("LLM_MAX_TOKENS") or 8000),
+        "max_tokens": int(max_tokens or config.get("LLM_MAX_TOKENS") or 8000),
     }
     if json_mode:
         body["temperature"] = 0.7
@@ -138,12 +138,12 @@ def _chat_anthropic(cfg: dict, system: str, user: str, json_mode: bool) -> str:
         raise LlmError(f"Unerwartete LLM-Antwort: {data}") from exc
 
 
-def chat_json(system: str, user_prompt: str, user: User | None = None) -> dict:
+def chat_json(system: str, user_prompt: str, user: User | None = None, max_tokens: int | None = None) -> dict:
     cfg = get_config(user)
     if cfg["provider"] == "anthropic":
-        text = _chat_anthropic(cfg, system, user_prompt, json_mode=True)
+        text = _chat_anthropic(cfg, system, user_prompt, json_mode=True, max_tokens=max_tokens)
     else:
-        text = _chat_openai_compatible(cfg, system, user_prompt, json_mode=True)
+        text = _chat_openai_compatible(cfg, system, user_prompt, json_mode=True, max_tokens=max_tokens)
     return _extract_json(text)
 
 

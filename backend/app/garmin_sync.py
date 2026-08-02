@@ -146,6 +146,7 @@ def _normalize_activity(a: dict) -> dict:
         "calories": a.get("calories"),
         "avg_pace_min_km": avg_pace,
         "avg_speed_kmh": avg_speed_kmh,
+        "training_load": a.get("activityTrainingLoad"),
         "hr_zones": zones,
         "source": "garmin",
         "extra": None,
@@ -222,6 +223,7 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
                     and existing.start_time == row["start_time"]
                     and existing.hr_zones
                     and existing.sport == row["sport"]
+                    and existing.training_load is not None
                 ):
                     skipped += 1
                     continue

@@ -36,6 +36,7 @@ class Activity(SQLModel, table=True):
     calories: Optional[float] = None
     avg_pace_min_km: Optional[float] = None
     avg_speed_kmh: Optional[float] = None
+    training_load: Optional[float] = None
     hr_zones: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     source: str = "garmin"
     extra: Optional[dict] = Field(default=None, sa_column=Column(JSON))
@@ -69,6 +70,7 @@ class PlanDay(SQLModel, table=True):
     done: bool = False
     steps: Optional[list] = Field(default=None, sa_column=Column(JSON))
     garmin_workout_id: Optional[str] = None
+    race_goal_id: Optional[int] = None
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)
 
 
@@ -102,3 +104,23 @@ class GarminCred(SQLModel, table=True):
     user_id: int = Field(primary_key=True)
     email: str = ""
     password: str = ""
+
+
+class Goal(SQLModel, table=True):
+    __tablename__ = "goals"
+
+    user_id: int = Field(primary_key=True)
+    running_km: Optional[float] = None
+    cycling_km: Optional[float] = None
+    updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
+
+
+class RaceGoal(SQLModel, table=True):
+    __tablename__ = "race_goals"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    name: str = ""
+    target_date: dt.date
+    distance_km: float = 10.0
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)

@@ -8,7 +8,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=8">
+  <link rel="stylesheet" href="/css/style.css?v=9">
 </head>
 <body>
   <div id="themeScript"></div>
@@ -54,6 +54,18 @@
         <div class="rings" id="dashRings"></div>
         <div class="cards" id="dashCards"></div>
         <div class="panel">
+          <div class="panel-head"><h2>Monatsziel</h2><span class="panel-sub" id="goalMonth"></span></div>
+          <div id="goalBox" class="goal-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Belastung</h2><span class="panel-sub" id="loadZone"></span></div>
+          <div id="loadBox" class="load-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Rekorde</h2><span class="panel-sub">laufen</span></div>
+          <div id="pbBox" class="pb-box"></div>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2>Letzte Woche</h2><span class="panel-sub" id="dashBarLabel">7 Tage</span></div>
           <div class="barchart" id="dashBarChart"></div>
         </div>
@@ -65,6 +77,10 @@
       </section>
 
       <section id="view-plan" class="view">
+        <div class="panel">
+          <div class="panel-head"><h2>🏁 Ziel-Wettkampf</h2></div>
+          <div id="raceBox"></div>
+        </div>
         <div class="panel">
           <div class="row-between">
             <h2>Trainingswoche</h2>
@@ -174,6 +190,13 @@
           <button class="btn" id="createUserBtn">Benutzer anlegen</button>
         </div>
         <div class="panel">
+          <h2>Benachrichtigungen</h2>
+          <p class="muted">Tägliche Erinnerung mit dem heutigen Workout (sobald Vorschlag/Plan existiert).</p>
+          <label class="field-label" for="reminderTime">Erinnerungszeit</label>
+          <input type="time" id="reminderTime" class="text-input">
+          <button class="btn" id="notifyBtn">Benachrichtigungen aktivieren</button>
+        </div>
+        <div class="panel">
           <h2>Installieren</h2>
           <p class="muted">Im Browser-Menü: „App installieren“ – so landet die App auf deinem Homescreen.</p>
         </div>
@@ -206,6 +229,6 @@
 
   <div id="toasts" class="toasts"></div>
 
-  <script src="/js/app.js?v=8"></script>
+  <script src="/js/app.js?v=9"></script>
 </body>
 </html>

@@ -237,6 +237,89 @@ def test_trend_endpoint_periods():
         assert r.status_code == 422
 
 
+def test_stats_load():
+    with TestClient(app) as c:
+        login(c)
+        r = c.get("/api/stats/load")
+        d = r.json()
+        assert "acute_7d" in d
+        assert "ratio" in d
+        assert "zone" in d
+
+
+def test_stats_pbs():
+    with db.session() as s:
+        s.add(Activity(
+            user_id=admin_id(), garmin_id="pb-run",
+            name="PB-Lauf", sport="running",
+            start_time=datetime.now() - timedelta(days=1),
+            duration_seconds=1500, distance_km=5.0,
+            avg_pace_min_km=5.0,
+        ))
+        s.commit()
+    with TestClient(app) as c:
+        login(c)
+        r = c.get("/api/stats/pbs")
+        items = r.json()["items"]
+        five = next((p for p in items if p["label"] == "5k"), None)
+        assert five is not None
+        assert five["time_seconds"] == 1500  # 5.0 pace * 5 km
+
+
+def test_goals_crud():
+    with db.session() as s:
+        s.add(Activity(
+            user_id=admin_id(), garmin_id="goal-run", name="Ziel-Lauf", sport="running",
+            start_time=datetime.now(), duration_seconds=1800, distance_km=5.0,
+        ))
+        s.commit()
+    with TestClient(app) as c:
+        login(c)
+        r = c.put("/api/goals", json={"running_km": 50, "cycling_km": None}, headers={"Origin": "http://testserver"})
+        assert r.status_code == 200
+        r = c.get("/api/goals")
+        d = r.json()
+        assert d["running_goal"] == 50
+        assert d["running_km"] >= 5.0
+        assert d["running_progress"] == round(min(1.0, d["running_km"] / 50) * 100)
+
+
+def test_race_plan_create_and_delete(monkeypatch):
+    from backend.app import plan_service
+
+    def fake_chat_json(system, user_prompt, db_user=None, **kwargs):
+        return {
+            "weeks": [
+                {
+                    "woche": 1,
+                    "fokus": "Basiswoche",
+                    "tage": [
+                        {"tag": 0, "sport": "running", "fokus": "Locker", "beschreibung": "30 min", "steps": [{"typ": "recovery", "dauer_min": 30, "zone": 2}]},
+                        {"tag": 2, "sport": "rest", "fokus": "Pause", "beschreibung": "", "steps": None},
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr("backend.app.plan_service.llm.chat_json", fake_chat_json)
+    with TestClient(app) as c:
+        login(c)
+        r = c.post(
+            "/api/race-plan",
+            json={"name": "Testlauf", "target_date": "2026-10-01", "distance_km": 10},
+            headers={"Origin": "http://testserver"},
+        )
+        assert r.status_code == 200
+        assert r.json()["days"] == 2
+        r = c.get("/api/race-plan")
+        assert r.json()["ok"] is True
+        assert r.json()["goal"]["name"] == "Testlauf"
+        r = c.delete("/api/race-plan", headers={"Origin": "http://testserver"})
+        assert r.status_code == 200
+        r = c.get("/api/race-plan")
+        assert r.json()["ok"] is False
+
+
 def test_plan_toggle():
     with TestClient(app) as c:
         login(c)

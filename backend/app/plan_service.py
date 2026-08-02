@@ -156,7 +156,118 @@ Antworte als JSON:
         return sug
 
 
-def json_dumps(obj, indent=2) -> str:
+def create_race_plan(
+    user_id: int, target_date: date, distance_km: float, name: str = ""
+) -> dict:
+    """Erstellt einen mehrwöchigen KI-Plan rückwärts vom Zieltermin."""
+    from .models import RaceGoal
+
+    today = date.today()
+    days_left = (target_date - today).days
+    if days_left < 14:
+        raise ValueError("Das Ziel muss mindestens 2 Wochen in der Zukunft liegen")
+    weeks = min(16, max(3, (days_left + 6) // 7))
+
+    ctx = build_context(user_id)
+    system = (
+        "Du bist ein erfahrener Wettkampf-Trainer für Läufer. "
+        "Erstelle progressive Wochenpläne rückwärts vom Zieltermin. "
+        "Antworte NUR mit validem JSON, kein anderer Text."
+    )
+    user = f"""Erstelle einen {weeks}-Wochen-Trainingsplan für den Wettkampf "{name or 'Wettkampf'}" über {distance_km:g} km am {target_date.isoformat()}.
+
+Trainingsdaten (letzte 14 Tage):
+{json_dumps(ctx, indent=2)}
+
+Regeln:
+- Woche 1 ist die aktuelle Woche (leicht), die Belastung steigt progressiv, letzte Woche = Tapering (wenig Umfang)
+- 1-2 Ruhetage pro Woche, max. 1 Qualitätseinheit pro Woche
+- Der Wettkampf-Tag ist in der letzten Woche: tag = Wochentag des Zieltermins ({target_date.strftime('%A')} = {target_date.weekday()})
+- Kurze konkrete Beschreibungen mit Dauer/Umfang (z.B. '45 min locker, Zone 2')
+
+Antworte als JSON:
+{{"weeks": [{{"woche": 1, "fokus": "Wochentitel", "tage": [{{"tag": 0, "sport": "running|cycling|strength|rest", "fokus": "Titel", "beschreibung": "Anweisung", "steps": [{{"typ": "warmup|interval|recovery|cooldown|rest", "dauer_min": 10, "zone": 3}}]}}]}}]}}
+"tag" 0=Montag bis 6=Sonntag. Nur running/cycling-Tage brauchen steps; rest/strength: steps null."""
+    db_user = auth.get_user(user_id)
+    try:
+        result = llm.chat_json(system, user, db_user, max_tokens=16000)
+    except llm.LlmError:
+        raise
+    race = RaceGoal(
+        user_id=user_id,
+        name=name or "Wettkampf",
+        target_date=target_date,
+        distance_km=distance_km,
+    )
+    with db.session() as s:
+        # Alten Rennplan ersetzen
+        old = s.exec(
+            select(RaceGoal).where(RaceGoal.user_id == user_id)
+        ).all()
+        for g in old:
+            for d in s.exec(
+                select(PlanDay).where(
+                    PlanDay.user_id == user_id, PlanDay.race_goal_id == g.id
+                )
+            ).all():
+                s.delete(d)
+            s.delete(g)
+        s.add(race)
+        s.commit()
+        s.refresh(race)
+
+        this_monday = today - timedelta(days=today.weekday())
+        created = 0
+        week_items = result.get("weeks") or []
+        for wi in week_items:
+            week_no = int(wi.get("woche", 1))
+            monday = this_monday + timedelta(days=(week_no - 1) * 7)
+            for td in wi.get("tage", []):
+                day_offset = int(td.get("tag", 0)) % 7
+                day_date = monday + timedelta(days=day_offset)
+                is_race_day = (
+                    week_no == weeks and day_date == target_date
+                )
+                focus = td.get("fokus") or td.get("focus", "")
+                if is_race_day:
+                    sport = "running"
+                    focus = f"🏁 WETTKAMPF: {race.name} ({distance_km:g} km)"
+                    description = f"Rennen über {distance_km:g} km – gut einlaufen, dein Rennen laufen, auslaufen."
+                    steps = [
+                        {"typ": "warmup", "dauer_min": 15, "zone": 2},
+                        {"typ": "interval", "dauer_min": int(distance_km * 60 / 10), "zone": 4},
+                        {"typ": "cooldown", "dauer_min": 10, "zone": 2},
+                    ]
+                else:
+                    sport = str(td.get("sport", "rest"))
+                    description = td.get("beschreibung") or td.get("description", "")
+                    steps = _clean_steps(td.get("steps"))
+                day = PlanDay(
+                    user_id=user_id,
+                    week=iso_week(day_date),
+                    day_offset=day_offset,
+                    sport=sport,
+                    focus=focus,
+                    description=description,
+                    steps=steps,
+                    race_goal_id=race.id,
+                )
+                s.add(day)
+                created += 1
+        s.commit()
+        race_id = race.id
+        race_name = race.name
+        race_target = race.target_date.isoformat()
+        race_distance = race.distance_km
+    return {
+        "ok": True,
+        "race_id": race_id,
+        "name": race_name,
+        "target_date": race_target,
+        "distance_km": race_distance,
+        "weeks": weeks,
+        "days": created,
+    }
     import json
 
     return json.dumps(obj, indent=indent, ensure_ascii=False, default=str)
@@ -189,3 +300,9 @@ def _clean_steps(steps) -> list | None:
             zone = None
         cleaned.append({"typ": typ, "dauer_min": round(dauer, 1), "zone": zone})
     return cleaned or None
+
+
+def json_dumps(obj, indent=2) -> str:
+    import json
+
+    return json.dumps(obj, indent=indent, ensure_ascii=False, default=str)

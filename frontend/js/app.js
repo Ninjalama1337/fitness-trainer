@@ -189,7 +189,7 @@ function switchView(name) {
   $$(".bottomnav button").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
   if (name === "dashboard") loadDashboard();
-  if (name === "plan") loadPlan();
+  if (name === "plan") { loadRaceBox(); loadPlan(); }
   if (name === "activities") loadActivities();
   if (name === "suggestion") loadSuggestion();
   if (name === "trend") loadTrend(currentTrendPeriod);
@@ -374,14 +374,127 @@ async function refreshSettings() {
 async function loadDashboard() {
   const skel = $("#dashRings");
   skel.innerHTML = "";
-  const [sum, zones] = await Promise.all([
+  const [sum, zones, loadData, pbData, goalData] = await Promise.all([
     api("/api/stats/summary?days=7"),
     api("/api/stats/zones?days=30"),
+    api("/api/stats/load"),
+    api("/api/stats/pbs"),
+    api("/api/goals"),
   ]);
   renderRings(sum.totals);
   renderCards(sum.totals);
   renderBarChart(sum.series);
   renderZoneBar(zones.shares, zones.total_minutes);
+  renderLoad(loadData);
+  renderPbs(pbData);
+  renderGoal(goalData);
+}
+
+/* ---------- Belastung ---------- */
+function renderLoad(l) {
+  $("#loadZone").textContent = l.zone === "optimal" ? "✓ optimal" : "⚠ " + l.zone;
+  $("#loadZone").style.color = l.zone === "optimal" ? "var(--ok)" : "var(--warn)";
+  const box = $("#loadBox");
+  box.innerHTML = "";
+  const items = [
+    { label: "Akut (7 Tage)", value: l.acute_7d ? fmtNum(l.acute_7d) : "–" },
+    { label: "Chronisch (Ø Woche)", value: l.chronic_28d ? fmtNum(l.chronic_28d) : "–" },
+    { label: "Verhältnis", value: l.ratio ? fmtNum(l.ratio, 2) : "–" },
+    { label: "Trainingstage", value: l.training_days_28d + "/28" },
+  ];
+  const row = el("div", "load-row");
+  items.forEach((it) => {
+    const c = el("div", "load-item");
+    c.append(el("div", "load-value", it.value), el("div", "load-label", it.label));
+    row.append(c);
+  });
+  box.append(row);
+  if (l.ratio !== null) {
+    box.append(el("div", "muted small", "Optimal: 0,8–1,3 · " + (l.ratio < 0.8 ? "du trainierst aktuell zu wenig" : l.ratio > 1.5 ? "Vorsicht: Überlastungsrisiko" : "Belastung im grünen Bereich")));
+  } else {
+    box.append(el("div", "muted small", "Nach dem nächsten Garmin-Sync verfügbar (Trainingsbelastung aus der Uhr)."));
+  }
+}
+
+/* ---------- Rekorde ---------- */
+function renderPbs(pbData) {
+  const box = $("#pbBox");
+  box.innerHTML = "";
+  if (!pbData.items.length) {
+    box.append(el("p", "muted small", "Noch keine Rekorde — nach Lauf-Einheiten erscheinen sie hier automatisch."));
+    return;
+  }
+  const row = el("div", "pb-row");
+  pbData.items.forEach((p) => {
+    const c = el("div", "pb-item");
+    const mm = Math.floor(p.time_seconds / 60);
+    const ss = String(p.time_seconds % 60).padStart(2, "0");
+    c.append(el("div", "pb-value", mm + ":" + ss), el("div", "pb-label", p.label));
+    c.title = p.activity_name + " · " + fmtNum(p.activity_distance_km) + " km · " + p.date;
+    row.append(c);
+  });
+  box.append(row);
+  box.append(el("div", "muted small", "Beste Gesamtpace über die Distanz (aus deinen Einheiten, Automatik)."));
+}
+
+/* ---------- Monatsziel ---------- */
+function renderGoal(g) {
+  $("#goalMonth").textContent = g.month;
+  const box = $("#goalBox");
+  box.innerHTML = "";
+  const items = [];
+  if (g.running_goal) {
+    items.push({ label: "Lauf", value: g.running_km, goal: g.running_goal, progress: g.running_progress, color: "var(--run)" });
+  }
+  if (g.cycling_goal) {
+    items.push({ label: "Rad", value: g.cycling_km, goal: g.cycling_goal, progress: g.cycling_progress, color: "var(--cycle)" });
+  }
+  if (!items.length) {
+    box.append(el("p", "muted small", "Noch kein Ziel gesetzt. Ziel eingeben:"));
+  }
+  const row = el("div", "goal-row");
+  items.forEach((it) => {
+    const c = el("div", "goal-item");
+    const bar = el("div", "goal-bar");
+    const fill = el("div", "goal-fill");
+    fill.style.width = (it.progress || 0) + "%";
+    fill.style.background = it.color;
+    bar.append(fill);
+    c.append(
+      el("div", "goal-label", it.label),
+      bar,
+      el("div", "goal-text", fmtNum(it.value) + " / " + fmtNum(it.goal) + " km (" + (it.progress || 0) + "%)")
+    );
+    row.append(c);
+  });
+  box.append(row);
+
+  const editRow = el("div", "goal-edit");
+  const runIn = el("input", "text-input goal-input");
+  runIn.type = "number";
+  runIn.min = "0";
+  runIn.placeholder = "Lauf-ziel km";
+  runIn.value = g.running_goal || "";
+  const cycIn = el("input", "text-input goal-input");
+  cycIn.type = "number";
+  cycIn.min = "0";
+  cycIn.placeholder = "Rad-ziel km";
+  cycIn.value = g.cycling_goal || "";
+  const btn = el("button", "btn-mini", "Speichern");
+  btn.addEventListener("click", async () => {
+    await api("/api/goals", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        running_km: runIn.value ? parseFloat(runIn.value) : null,
+        cycling_km: cycIn.value ? parseFloat(cycIn.value) : null,
+      }),
+    });
+    toast("Monatsziel gespeichert", "ok");
+    loadDashboard();
+  });
+  editRow.append(runIn, cycIn, btn);
+  box.append(editRow);
 }
 
 function renderRings(t) {
@@ -1125,4 +1238,119 @@ document.addEventListener("touchend", (e) => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
   await initAuth();
+  setupReminder();
 })();
+
+/* ================= Ziel-Wettkampf ================= */
+async function loadRaceBox() {
+  const box = $("#raceBox");
+  box.innerHTML = "";
+  const data = await api("/api/race-plan");
+  if (!data.ok) {
+    box.append(el("p", "muted small", "Setze ein Ziel (z.B. 10k in 8 Wochen) – die KI plant dann rückwärts vom Wettkampftag."));
+    const row = el("div", "race-form");
+    const nameIn = el("input", "text-input", "");
+    nameIn.placeholder = "Zielname (optional)";
+    const distIn = el("select", "text-input");
+    [[5, "5 km"], [10, "10 km"], [21.1, "Halbmarathon"], [42.2, "Marathon"]].forEach(([v, l]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = l;
+      distIn.append(o);
+    });
+    const dateIn = el("input", "text-input");
+    dateIn.type = "date";
+    const minDate = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    dateIn.min = minDate;
+    const btn = el("button", "btn primary", "Rennplan generieren (1–2 Min)");
+    btn.addEventListener("click", async () => {
+      if (!dateIn.value) return toast("Bitte Zieltermin wählen", "err");
+      btn.disabled = true;
+      btn.textContent = "Generiere…";
+      try {
+        const r = await api("/api/race-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: nameIn.value, target_date: dateIn.value, distance_km: parseFloat(distIn.value) }),
+        });
+        toast("Rennplan für " + r.name + " erstellt (" + r.weeks + " Wochen)", "ok");
+        loadRaceBox();
+        loadPlan();
+      } catch (err) {
+        toast("Fehler: " + err.message, "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Rennplan generieren (1–2 Min)";
+      }
+    });
+    row.append(nameIn, distIn, dateIn, btn);
+    box.append(row);
+    return;
+  }
+  const g = data.goal;
+  const info = el("div", "race-info");
+  const daysLeft = Math.ceil((new Date(g.target_date + "T12:00:00") - new Date()) / 86400000);
+  info.append(
+    el("div", "race-title", "🏁 " + g.name + " · " + fmtNum(g.distance_km) + " km"),
+    el("div", "muted small", "Zieltermin " + g.target_date + " (" + daysLeft + " Tage) · " + g.weeks + " Wochen · " + g.days_done + "/" + g.days + " abgehakt"),
+  );
+  const actions = el("div", "send-row");
+  const toPlan = el("button", "btn-mini", "→ Zum Plan");
+  toPlan.addEventListener("click", () => loadPlan(g.first_week || undefined));
+  const del = el("button", "btn-mini del", "Entfernen");
+  del.addEventListener("click", async () => {
+    if (!confirm("Rennplan wirklich löschen?")) return;
+    await api("/api/race-plan", { method: "DELETE" });
+    toast("Rennplan entfernt", "ok");
+    loadRaceBox();
+    loadPlan();
+  });
+  actions.append(toPlan, del);
+  info.append(actions);
+  box.append(info);
+}
+
+/* ================= Tägliche Erinnerung ================= */
+function setupReminder() {
+  const savedTime = localStorage.getItem("reminderTime") || "07:00";
+  $("#reminderTime").value = savedTime;
+  $("#reminderTime").addEventListener("change", (e) => {
+    localStorage.setItem("reminderTime", e.target.value);
+    scheduleReminder(e.target.value);
+    toast("Erinnerung auf " + e.target.value + " Uhr gesetzt", "ok");
+  });
+  scheduleReminder(savedTime);
+  maybeDailyReminder();
+}
+
+function scheduleReminder(timeStr) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const now = new Date();
+  const [h, m] = timeStr.split(":").map(Number);
+  const target = new Date(now);
+  target.setHours(h, m, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const delay = target - now;
+  setTimeout(() => {
+    sendDailyReminder();
+    scheduleReminder(timeStr);
+  }, delay);
+}
+
+async function maybeDailyReminder() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const today = new Date().toDateString();
+  if (localStorage.getItem("reminderShown") === today) return;
+  await sendDailyReminder();
+  localStorage.setItem("reminderShown", today);
+}
+
+async function sendDailyReminder() {
+  try {
+    const sug = await api("/api/suggestion");
+    if (!sug.ok) return;
+    const s = sug.suggestion;
+    if (s.garmin_workout_id) return;
+    notify("Heutiges Training", (s.title || "Workout") + " – " + (s.workout || "").slice(0, 90));
+  } catch (e) {}
+}
