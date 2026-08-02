@@ -31,8 +31,19 @@ SPORT_LABELS = {
 }
 
 
-def map_sport(sport_type: str | None) -> str:
-    if not sport_type:
+def map_sport(sport_type) -> str:
+    if sport_type is None:
+        return "other"
+    if isinstance(sport_type, dict):
+        for key in ("typeKey", "key", "sportTypeKey", "name", "value"):
+            v = sport_type.get(key)
+            if isinstance(v, str) and v:
+                sport_type = v
+                break
+        else:
+            tid = sport_type.get("typeId") or sport_type.get("sportTypeId")
+            return map_sport_id(tid)
+    if not isinstance(sport_type, str):
         return "other"
     key = sport_type.lower().replace(" ", "_")
     return SPORT_ALIASES.get(key, "other")
