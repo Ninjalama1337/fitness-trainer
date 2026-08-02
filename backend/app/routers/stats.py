@@ -67,6 +67,11 @@ def summary(
         d = date.today() - timedelta(days=days - 1 - i)
         entry = per_day.get(d, {})
         h = health_by_day.get(d)
+        day_calories = (
+            round(h.active_calories)
+            if h and h.active_calories
+            else entry.get("calories", 0)
+        )
         series.append(
             {
                 "date": d.isoformat(),
@@ -74,7 +79,7 @@ def summary(
                 "cycling_km": round(entry.get("cycling_km", 0), 1),
                 "sessions": entry.get("sessions", 0),
                 "strength_count": entry.get("strength_count", 0),
-                "calories": round(entry.get("calories", 0)),
+                "calories": day_calories,
                 "sleep_h": round((h.sleep_seconds or 0) / 3600, 1) if h else None,
                 "steps": h.steps if h else None,
                 "resting_hr": h.resting_hr if h else None,
