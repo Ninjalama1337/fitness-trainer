@@ -785,9 +785,11 @@ $("#planSendAll").addEventListener("click", async (e) => {
 });
 
 function mondayOfIsoWeek(year, week) {
+  // Montag der ISO-Woche: Woche 1 enthält den 4. Januar.
+  // jan4 - (day - 1) = Montag der Woche 1 (day: 1=Mo..7=So)
   const jan4 = new Date(Date.UTC(year, 0, 4));
   const day = jan4.getUTCDay() || 7;
-  return new Date(Date.UTC(year, 0, 4 - day + (week - 1) * 7));
+  return new Date(Date.UTC(year, 0, 4 - (day - 1) + (week - 1) * 7));
 }
 function isoWeekOfDate(d) {
   const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
