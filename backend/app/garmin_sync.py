@@ -210,33 +210,38 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
         for a in activities:
             try:
                 row = _normalize_activity(a)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
+                logger.warning("Aktivitaet uebersprungen (Normalisierung): %s", exc)
                 skipped += 1
                 continue
-            existing = get_activity_by_garmin_id(s, user_id, row["garmin_id"])
-            if (
-                existing
-                and existing.start_time == row["start_time"]
-                and existing.hr_zones
-                and existing.sport == row["sport"]
-            ):
+            try:
+                existing = get_activity_by_garmin_id(s, user_id, row["garmin_id"])
+                if (
+                    existing
+                    and existing.start_time == row["start_time"]
+                    and existing.hr_zones
+                    and existing.sport == row["sport"]
+                ):
+                    skipped += 1
+                    continue
+                if existing:
+                    row["hr_zones"] = existing.hr_zones or _fetch_hr_zones(api, row["garmin_id"])
+                else:
+                    row["hr_zones"] = _fetch_hr_zones(api, row["garmin_id"])
+                logger.info(
+                    "Aktivitaet %s: sport=%s km=%s avg_hr=%s zones=%s",
+                    row["garmin_id"], row["sport"], row["distance_km"],
+                    row["avg_hr"], bool(row["hr_zones"]),
+                )
+                if existing:
+                    for k, v in row.items():
+                        setattr(existing, k, v)
+                else:
+                    s.add(Activity(user_id=user_id, **row))
+                imported += 1
+            except Exception as exc:
+                logger.exception("Aktivitaet %s fehlgeschlagen", row.get("garmin_id"))
                 skipped += 1
-                continue
-            if existing:
-                row["hr_zones"] = existing.hr_zones or _fetch_hr_zones(api, row["garmin_id"])
-            else:
-                row["hr_zones"] = _fetch_hr_zones(api, row["garmin_id"])
-            logger.info(
-                "Aktivitaet %s: sport=%s km=%s avg_hr=%s zones=%s",
-                row["garmin_id"], row["sport"], row["distance_km"],
-                row["avg_hr"], bool(row["hr_zones"]),
-            )
-            if existing:
-                for k, v in row.items():
-                    setattr(existing, k, v)
-            else:
-                s.add(Activity(user_id=user_id, **row))
-            imported += 1
         _sync_health(s, user_id, api, days=14)
         s.commit()
     return {"imported": imported, "skipped": skipped}

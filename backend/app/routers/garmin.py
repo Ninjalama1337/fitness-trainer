@@ -74,6 +74,9 @@ def sync(
         )
         return {"ok": True, **result}
     except Exception as exc:
+        import logging
+
+        logging.getLogger("fitness").exception("Sync fehlgeschlagen: %s", exc)
         _handle_garmin_error(exc, user.id, "Sync")
 
 
