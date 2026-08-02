@@ -30,15 +30,17 @@ jobs:
         id: tags
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tags=${GITHUB_REF_NAME},latest" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
-            echo "tags=latest,sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
       - name: Build & Push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ env.REGISTRY }}/${{ steps.img.outputs.name }}:${{ steps.tags.outputs.tags }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.img.outputs.name }}:latest
+            ${{ env.REGISTRY }}/${{ steps.img.outputs.name }}:${{ steps.tags.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
