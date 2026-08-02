@@ -949,6 +949,7 @@ async function loadSettings() {
     ["Garmin", s.garmin_configured ? (s.sync_status === "ok" ? "Verbunden" : s.sync_status === "mfa" ? "2FA nötig" : "Konfiguriert") : "Nicht verbunden", s.garmin_configured ? (s.sync_status === "ok" ? "ok" : "warn") : "err"],
     ["Letzter Sync", s.last_sync ? fmtLocal(s.last_sync) + (s.sync_stale ? " (veraltet)" : "") : "Nie", s.sync_stale ? "warn" : "ok"],
     ["LLM Provider", s.llm.provider + (s.llm.model ? " · " + s.llm.model : ""), s.llm.configured ? "ok" : "err"],
+    ["App-Version", s.version || "?", "ok"],
   ];
   rows.forEach(([k, v, cls]) => {
     const row = el("div", "status-item");
