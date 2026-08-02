@@ -1,4 +1,6 @@
 """Strukturierte Workouts (aus KI-Steps) an Garmin Connect senden."""
+import re
+
 from garminconnect.workout import (
     CyclingWorkout,
     ExecutableStep,
@@ -142,8 +144,44 @@ def delete_workout(user_id: int, workout_id: str) -> None:
         raise WorkoutError(f"Löschen fehlgeschlagen: {exc}") from exc
 
 
-def push_workout_to_devices(user_id: int, workout_id: str) -> list[dict]:
-    """Sendet ein Workout direkt an alle Garmin-Geräte (Uhr, Radcomputer …)."""
+WATCH_KEYS = (
+    "forerunner", "fenix", "venu", "instinct", "vivomove", "vivoactive",
+    "marq", "epix", "tactix", "descent", "enduro", "approach", "d2", "quatix",
+)
+BIKE_KEYS = ("edge",)
+HRM_KEYS = ("hrm", "hr_pro", "heart_rate", "hr_pro")
+
+
+def classify_device(key: str) -> str:
+    """Klassifiziert ein Gerät: watch | bike_computer | hrm | other."""
+    k = (key or "").lower()
+    if any(s in k for s in WATCH_KEYS):
+        return "watch"
+    if any(s in k for s in BIKE_KEYS):
+        return "bike_computer"
+    if any(s in k for s in HRM_KEYS):
+        return "hrm"
+    return "other"
+
+
+def _friendly_name(device: dict, key: str) -> str:
+    for f in ("friendlyName", "deviceName", "productName", "name"):
+        v = device.get(f)
+        if v:
+            return str(v)
+    base = re.sub(r"\d+.*$", "", key).strip("_-")
+    if base:
+        return base.capitalize()
+    return {
+        "watch": "Uhr",
+        "bike_computer": "Radcomputer",
+        "hrm": "Herzfrequenzgurt",
+        "other": "Gerät",
+    }.get(classify_device(key), "Gerät")
+
+
+def list_devices(user_id: int) -> list[dict]:
+    """Listet alle Garmin-Geräte, an die Workouts gesendet werden können."""
     api = _connected_api(user_id)
     try:
         devices = api.get_devices()
@@ -151,17 +189,59 @@ def push_workout_to_devices(user_id: int, workout_id: str) -> list[dict]:
         raise
     except Exception as exc:
         raise WorkoutError(f"Geräte abrufen fehlgeschlagen: {exc}") from exc
-    targets = [d for d in devices if d.get("appSupport") is True]
-    if not targets:
+    out = []
+    for d in devices:
+        if d.get("appSupport") is not True:
+            continue
+        dev_id = d.get("deviceId")
+        key = d.get("applicationKey") or ""
+        out.append(
+            {
+                "device_id": str(dev_id),
+                "name": _friendly_name(d, key),
+                "kind": classify_device(key),
+                "application_key": key,
+            }
+        )
+    return out
+
+
+def default_device_ids(devices: list[dict], sport: str) -> list[str]:
+    """Bevorzugte Geräte für eine Sportart: Rad → Radcomputer, sonst → Uhr."""
+    kind = "bike_computer" if sport == "cycling" else "watch"
+    ids = [d["device_id"] for d in devices if d["kind"] == kind]
+    if not ids:
+        ids = [d["device_id"] for d in devices if d["kind"] == "other"]
+    return ids
+
+
+def push_workout_to_devices(
+    user_id: int, workout_id: str, device_ids: list[str] | None = None
+) -> list[dict]:
+    """Sendet ein Workout an Garmin-Geräte (default: alle sendbaren)."""
+    devices = list_devices(user_id)
+    if not devices:
         raise WorkoutError(
             "Kein Garmin-Gerät gefunden, an das Workouts gesendet werden können"
         )
+    if device_ids is not None:
+        wanted = set(device_ids)
+        targets = [d for d in devices if d["device_id"] in wanted]
+    else:
+        targets = [d for d in devices if d["kind"] != "hrm"]
+    if not targets:
+        raise WorkoutError("Keine passenden Garmin-Geräte ausgewählt")
+    api = _connected_api(user_id)
     results = []
     for d in targets:
-        dev_id = d.get("deviceId")
-        dev_key = d.get("applicationKey") or str(dev_id)
+        dev_id = d["device_id"]
+        dev_key = d.get("application_key") or dev_id
         try:
-            api.push_workout_to_device(workout_id, dev_id)
+            try:
+                dev_id_int = int(dev_id)
+            except (TypeError, ValueError):
+                dev_id_int = dev_id
+            api.push_workout_to_device(workout_id, dev_id_int)
             results.append({"device": dev_key, "ok": True})
         except g.GarminMfaRequired:
             raise

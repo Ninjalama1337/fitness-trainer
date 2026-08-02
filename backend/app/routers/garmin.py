@@ -20,6 +20,10 @@ class SyncPayload(BaseModel):
     mfa_code: str | None = None
 
 
+class WorkoutPayload(BaseModel):
+    device_ids: list[str] | None = None
+
+
 def _handle_garmin_error(exc: Exception, user_id: int, action: str):
     if isinstance(exc, g.GarminMfaRequired):
         g.update_sync_state(user_id, "mfa", str(exc))
@@ -80,8 +84,23 @@ def sync(
         _handle_garmin_error(exc, user.id, "Sync")
 
 
+@router.get("/devices")
+def get_devices(user: User = Depends(auth.get_current_user)):
+    if not g.is_configured(user.id):
+        raise HTTPException(400, {"error": "Garmin nicht konfiguriert", "mfa": False})
+    try:
+        devices = gw.list_devices(user.id)
+        return {"ok": True, "items": devices}
+    except Exception as exc:
+        _handle_garmin_error(exc, user.id, "Geräte-Abruf")
+
+
 @router.post("/workout/suggestion/{sug_id}")
-def send_suggestion_workout(sug_id: int, user: User = Depends(auth.get_current_user)):
+def send_suggestion_workout(
+    sug_id: int,
+    payload: WorkoutPayload | None = None,
+    user: User = Depends(auth.get_current_user),
+):
     if not g.is_configured(user.id):
         raise HTTPException(400, {"error": "Garmin nicht konfiguriert", "mfa": False})
     with session() as s:
@@ -90,7 +109,9 @@ def send_suggestion_workout(sug_id: int, user: User = Depends(auth.get_current_u
             raise HTTPException(404, "Vorschlag nicht gefunden")
         try:
             wid = gw.upload_workout(user.id, sug.title or "Training", sug.sport, sug.steps)
-            pushed = gw.push_workout_to_devices(user.id, wid)
+            pushed = gw.push_workout_to_devices(
+                user.id, wid, payload.device_ids if payload else None
+            )
             sug.garmin_workout_id = wid
             s.add(sug)
             s.commit()
@@ -106,7 +127,11 @@ def send_suggestion_workout(sug_id: int, user: User = Depends(auth.get_current_u
 
 
 @router.post("/workout/plan/{plan_id}")
-def send_plan_workout(plan_id: int, user: User = Depends(auth.get_current_user)):
+def send_plan_workout(
+    plan_id: int,
+    payload: WorkoutPayload | None = None,
+    user: User = Depends(auth.get_current_user),
+):
     if not g.is_configured(user.id):
         raise HTTPException(400, {"error": "Garmin nicht konfiguriert", "mfa": False})
     with session() as s:
@@ -119,7 +144,9 @@ def send_plan_workout(plan_id: int, user: User = Depends(auth.get_current_user))
             weekday = WEEKDAYS[day.day_offset % 7]
             name = f"{day.focus or 'Training'} ({weekday})"
             wid = gw.upload_workout(user.id, name, day.sport, day.steps)
-            pushed = gw.push_workout_to_devices(user.id, wid)
+            pushed = gw.push_workout_to_devices(
+                user.id, wid, payload.device_ids if payload else None
+            )
             day.garmin_workout_id = wid
             s.add(day)
             s.commit()
@@ -145,6 +172,7 @@ def send_all_plan_workouts(week: str, user: User = Depends(auth.get_current_user
             .order_by(PlanDay.day_offset)
         ).all()
         sent, skipped, errors = [], [], []
+        devices = None
         for day in days:
             if day.garmin_workout_id:
                 skipped.append({"id": day.id, "reason": "bereits gesendet"})
@@ -153,10 +181,13 @@ def send_all_plan_workouts(week: str, user: User = Depends(auth.get_current_user
                 skipped.append({"id": day.id, "reason": "nicht sendbar (Pause/Kraft/keine Steps)"})
                 continue
             try:
+                if devices is None:
+                    devices = gw.list_devices(user.id)
+                target_ids = gw.default_device_ids(devices, day.sport)
                 wid = gw.upload_workout(user.id, f"{day.focus or 'Training'} W{week}", day.sport, day.steps)
-                gw.push_workout_to_devices(user.id, wid)
+                gw.push_workout_to_devices(user.id, wid, target_ids)
                 day.garmin_workout_id = wid
-                sent.append({"id": day.id, "workout_id": wid})
+                sent.append({"id": day.id, "workout_id": wid, "devices": target_ids})
             except g.GarminMfaRequired:
                 s.rollback()
                 g.update_sync_state(user.id, "mfa", "MFA-Code erforderlich")

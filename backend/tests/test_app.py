@@ -441,6 +441,56 @@ def test_normalize_activity_from_list_api():
     assert row["hr_zones"]["zone3"] == 2866
 
 
+def test_device_classification():
+    from backend.app.garmin_workouts import classify_device
+
+    assert classify_device("forerunner57047MM") == "watch"
+    assert classify_device("fenix7") == "watch"
+    assert classify_device("edge540") == "bike_computer"
+    assert classify_device("HRM200") == "hrm"
+    assert classify_device("") == "other"
+
+
+def test_default_device_ids():
+    from backend.app.garmin_workouts import default_device_ids
+
+    devices = [
+        {"device_id": "1", "kind": "watch", "name": "Forerunner"},
+        {"device_id": "2", "kind": "bike_computer", "name": "Edge"},
+        {"device_id": "3", "kind": "hrm", "name": "HRM"},
+    ]
+    assert default_device_ids(devices, "running") == ["1"]
+    assert default_device_ids(devices, "cycling") == ["2"]
+    # Fallback: nur "other" vorhanden
+    assert default_device_ids([{"device_id": "9", "kind": "other", "name": "X"}], "running") == ["9"]
+
+
+def test_push_to_selected_devices(monkeypatch):
+    from backend.app import garmin_workouts as gw
+
+    class FakeApi:
+        def __init__(self):
+            self.pushed = []
+
+        def get_devices(self):
+            return [
+                {"appSupport": True, "deviceId": 1, "applicationKey": "forerunner570"},
+                {"appSupport": True, "deviceId": 2, "applicationKey": "edge540"},
+                {"appSupport": False, "deviceId": 3, "applicationKey": "hrm200"},
+            ]
+
+        def push_workout_to_device(self, workout_id, device_id):
+            self.pushed.append((workout_id, device_id))
+
+    fake = FakeApi()
+    monkeypatch.setattr("backend.app.garmin_workouts._connected_api", lambda user_id: fake)
+
+    results = gw.push_workout_to_devices(1, "123", device_ids=["2"])
+    assert results[0]["ok"] is True
+    assert fake.pushed == [("123", 2)]
+    assert len(results) == 1
+
+
 def test_generate_suggestion_sets_user_id(monkeypatch):
     from backend.app import plan_service
 

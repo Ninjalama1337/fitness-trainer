@@ -344,8 +344,8 @@ async function loadPlan(week) {
         del.addEventListener("click", () => deleteGarminWorkout(d.garmin_workout_id, "plan"));
         sr.append(del);
       } else {
-        const send = el("button", "btn-mini", "→ Uhr senden");
-        send.addEventListener("click", () => sendPlanDay(d, send));
+        const send = el("button", "btn-mini", "→ Gerät senden");
+        send.addEventListener("click", () => sendPlanDayWithDevices(d, send));
         sr.append(send);
       }
       body.append(sr);
@@ -360,21 +360,7 @@ async function togglePlanDay(id, row) {
   row.classList.toggle("done", d.done);
 }
 
-async function sendPlanDay(d, btn) {
-  btn.disabled = true;
-  btn.textContent = "Sende…";
-  try {
-    const r = await api(`/api/garmin/workout/plan/${d.id}`, { method: "POST" });
-    const pushed = r.pushed && r.pushed.length ? r.pushed.filter((p) => p.ok).length + " Geräte" : "";
-    toast("Workout gesendet" + (pushed ? " an " + pushed : ""), "ok");
-    notify("Workout gesendet", r.name + " liegt jetzt auf Garmin");
-    loadPlan(planWeek);
-  } catch (err) {
-    toast("Senden fehlgeschlagen: " + err.message, "err");
-    btn.disabled = false;
-    btn.textContent = "→ Uhr senden";
-  }
-}
+
 
 async function deleteGarminWorkout(workoutId) {
   try {
@@ -530,7 +516,117 @@ function openActivitySheet(a) {
   $("#activitySheet").hidden = false;
   $("#sheetOverlay").hidden = false;
 }
-$("#sheetOverlay").addEventListener("click", closeSheet);
+/* ---------- Geräte-Auswahl beim Workout-Senden ---------- */
+const KIND_LABELS = {
+  watch: "Uhr",
+  bike_computer: "Radcomputer",
+  hrm: "Herzfrequenzgurt",
+  other: "Gerät",
+};
+let deviceSheetCallback = null;
+
+async function openDeviceSheet(sport, onSend) {
+  const overlay = $("#sheetOverlay");
+  const sheet = $("#deviceSheet");
+  const content = $("#deviceSheetContent");
+  content.innerHTML = '<div class="skeleton" style="height:60px;margin:8px 0"></div>';
+  overlay.hidden = false;
+  sheet.hidden = false;
+  try {
+    const data = await api("/api/garmin/devices");
+    const devices = data.items.filter((d) => d.kind !== "hrm");
+    if (!devices.length) {
+      content.innerHTML = '<p class="muted" style="padding:16px 4px">Keine Garmin-Geräte gefunden.</p>';
+      return;
+    }
+    const preselected = new Set(
+      sport === "cycling"
+        ? devices.filter((d) => d.kind === "bike_computer").map((d) => d.device_id)
+        : devices.filter((d) => d.kind === "watch").map((d) => d.device_id)
+    );
+    if (!preselected.size) devices.forEach((d) => preselected.add(d.device_id));
+
+    const title = el("h3", "", "An welches Gerät senden?");
+    const sub = el("p", "muted small", "Vorausgewählt passend zur Sportart (Lauf → Uhr, Rad → Radcomputer).");
+    content.append(title, sub);
+    devices.forEach((d) => {
+      const row = el("label", "device-row");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = preselected.has(d.device_id);
+      const info = el("div", "d-info");
+      info.append(el("div", "d-name", d.name), el("div", "d-kind", KIND_LABELS[d.kind] || "Gerät"));
+      row.append(cb, info);
+      content.append(row);
+    });
+    const actions = el("div", "device-actions");
+    const cancel = el("button", "btn", "Abbrechen");
+    cancel.addEventListener("click", closeDeviceSheet);
+    const send = el("button", "btn primary", "Senden");
+    send.addEventListener("click", async () => {
+      const ids = [...content.querySelectorAll("input[type=checkbox]")]
+        .filter((c) => c.checked)
+        .map((c) => c.closest(".device-row").dataset) ;
+      const selected = devices
+        .filter((d) => content.querySelectorAll("input[type=checkbox]")[devices.indexOf(d)].checked)
+        .map((d) => d.device_id);
+      if (!selected.length) return toast("Bitte mindestens ein Gerät wählen", "err");
+      send.disabled = true;
+      send.textContent = "Sende…";
+      try {
+        await onSend(selected);
+        closeDeviceSheet();
+      } catch (err) {
+        toast("Senden fehlgeschlagen: " + err.message, "err");
+        send.disabled = false;
+        send.textContent = "Senden";
+      }
+    });
+    actions.append(cancel, send);
+    content.append(actions, el("div", "device-send-msg", "Das Workout erscheint nach dem Uhren-Sync auf dem Gerät."));
+  } catch (err) {
+    content.innerHTML = '<p class="muted" style="padding:16px 4px">Geräte laden fehlgeschlagen: ' + err.message + "</p>";
+  }
+}
+
+function closeDeviceSheet() {
+  $("#deviceSheet").hidden = true;
+  $("#sheetOverlay").hidden = true;
+  deviceSheetCallback = null;
+}
+
+async function sendSuggestionWithDevices(s, sendBtn) {
+  openDeviceSheet(s.sport, async (deviceIds) => {
+    const r = await api(`/api/garmin/workout/suggestion/${s.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_ids: deviceIds }),
+    });
+    const pushed = r.pushed && r.pushed.length ? r.pushed.filter((p) => p.ok).length + " Geräte" : "";
+    toast("Workout gesendet" + (pushed ? " an " + pushed : ""), "ok");
+    notify("Workout gesendet", r.name + " liegt jetzt auf Garmin");
+    loadSuggestion();
+  });
+}
+
+async function sendPlanDayWithDevices(d, btn) {
+  openDeviceSheet(d.sport, async (deviceIds) => {
+    const r = await api(`/api/garmin/workout/plan/${d.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_ids: deviceIds }),
+    });
+    const pushed = r.pushed && r.pushed.length ? r.pushed.filter((p) => p.ok).length + " Geräte" : "";
+    toast("Workout gesendet" + (pushed ? " an " + pushed : ""), "ok");
+    notify("Workout gesendet", r.name + " liegt jetzt auf Garmin");
+    loadPlan(planWeek);
+  });
+}
+
+$("#sheetOverlay").addEventListener("click", () => {
+  closeSheet();
+  closeDeviceSheet();
+});
 function closeSheet() {
   $("#activitySheet").hidden = true;
   $("#sheetOverlay").hidden = true;
@@ -587,22 +683,8 @@ async function loadSuggestion() {
     card.append(sr);
   } else if (canSend(s.sport, s.steps)) {
     const sr = el("div", "send-row");
-    const send = el("button", "btn-mini", "→ Uhr senden");
-    send.addEventListener("click", async () => {
-      send.disabled = true;
-      send.textContent = "Sende…";
-      try {
-        const r = await api(`/api/garmin/workout/suggestion/${s.id}`, { method: "POST" });
-        const pushed = r.pushed && r.pushed.length ? r.pushed.filter((p) => p.ok).length + " Geräte" : "";
-        toast("Workout gesendet" + (pushed ? " an " + pushed : ""), "ok");
-        notify("Workout gesendet", r.name + " liegt jetzt auf Garmin");
-        loadSuggestion();
-      } catch (err) {
-        toast("Senden fehlgeschlagen: " + err.message, "err");
-        send.disabled = false;
-        send.textContent = "→ Uhr senden";
-      }
-    });
+    const send = el("button", "btn-mini", "→ Gerät senden");
+    send.addEventListener("click", () => sendSuggestionWithDevices(s, send));
     sr.append(send);
     card.append(sr);
   } else {

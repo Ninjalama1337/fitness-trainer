@@ -375,6 +375,21 @@ select.text-input { appearance: none; background-image: linear-gradient(45deg, t
 .sheet .sheet-row .sv { font-weight: 700; text-align: right; }
 
 /* ===== Toasts ===== */
+.device-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.device-row:last-of-type { border-bottom: none; }
+.device-row .d-info { flex: 1; min-width: 0; }
+.device-row .d-name { font-weight: 700; font-size: .92rem; }
+.device-row .d-kind { font-size: .72rem; color: var(--muted); }
+.device-row input[type="checkbox"] {
+  width: 22px; height: 22px; accent-color: var(--primary); flex: none;
+}
+.device-actions { display: flex; gap: 8px; margin-top: 10px; }
+.device-actions .btn { flex: 1; margin: 0; }
+.device-send-msg { font-size: .74rem; color: var(--muted); margin-top: 8px; text-align: center; }
+
 .toasts { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 400px); }
 .toast {
   background: var(--panel); border: 1px solid var(--border); border-radius: 13px;
