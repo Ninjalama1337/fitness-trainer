@@ -9,7 +9,7 @@ import garminconnect
 from . import config, crypto, db
 from .db import get_activity_by_garmin_id
 from .models import Activity, GarminCred, HealthDay, SyncState
-from .sports import map_sport, normalize_zones
+from .sports import map_sport, map_sport_id, normalize_zones
 
 logger = logging.getLogger("fitness")
 
@@ -106,7 +106,15 @@ def _parse_time(value) -> datetime | None:
 
 
 def _normalize_activity(a: dict) -> dict:
-    sport = map_sport(a.get("sportType"))
+    sport = "other"
+    for raw in (a.get("sportType"), a.get("activityType")):
+        if raw:
+            mapped = map_sport(raw)
+            if mapped != "other":
+                sport = mapped
+                break
+    else:
+        sport = map_sport_id(a.get("sportTypeId"))
     start = _parse_time(a.get("startTimeLocal") or a.get("startTimeGMT"))
     if not start:
         raise ValueError(f"Aktivitaet ohne Startzeit: {a.get('activityId')}")
@@ -118,6 +126,14 @@ def _normalize_activity(a: dict) -> dict:
     avg_pace = (
         round(1000 / (avg_speed_ms * 60), 2) if avg_speed_ms and sport == "running" else None
     )
+    zones = None
+    for key in ("hrTimeInZone_1", "hrTimeInZone_2", "hrTimeInZone_3", "hrTimeInZone_4", "hrTimeInZone_5"):
+        if a.get(key) is not None:
+            zones = {
+                f"zone{i + 1}": int(a.get(f"hrTimeInZone_{i + 1}", 0) or 0)
+                for i in range(5)
+            }
+            break
     return {
         "garmin_id": str(a.get("activityId", "")),
         "name": a.get("activityName") or sport,
@@ -130,9 +146,9 @@ def _normalize_activity(a: dict) -> dict:
         "calories": a.get("calories"),
         "avg_pace_min_km": avg_pace,
         "avg_speed_kmh": avg_speed_kmh,
-        "hr_zones": None,
+        "hr_zones": zones,
         "source": "garmin",
-        "extra": a.get("details") or None,
+        "extra": None,
     }
 
 
@@ -157,27 +173,15 @@ def _fetch_hr_zones(api, garmin_id: str) -> dict | None:
     """Zonen-Sekunden aus der Aktivität holen – toleriert mehrere Antwortformate."""
     try:
         zones = _api_get(api, lambda: api.get_activity_hr_in_timezones(str(garmin_id)))
-        if isinstance(zones, dict):
-            values = (
-                zones.get("hrTimeInZones")
-                or zones.get("zones")
-                or zones.get("hrTimeInZonesByActivity")
-            )
-            if values is None and "hrTimeInZones" in str(zones.keys()):
-                pass
-            normalized = normalize_zones(values)
-            if normalized:
-                return normalized
-            logger.info("get_activity_hr_in_timezones unerwartetes Format: %s", str(zones)[:200])
+        normalized = normalize_zones(zones)
+        if normalized:
+            return normalized
+        logger.info("Zone-Fetch unerwartetes Format: %s", str(zones)[:200])
     except Exception as exc:
         logger.info("Zone-Fetch (timezones) fehlgeschlagen: %s", str(exc)[:150])
     try:
         details = _api_get(api, lambda: api.get_activity(str(garmin_id)))
-        values = (
-            details.get("hrTimeInZones")
-            if isinstance(details, dict)
-            else None
-        )
+        values = details.get("hrTimeInZones") if isinstance(details, dict) else None
         normalized = normalize_zones(values)
         if normalized:
             return normalized
@@ -210,7 +214,12 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
                 skipped += 1
                 continue
             existing = get_activity_by_garmin_id(s, user_id, row["garmin_id"])
-            if existing and existing.start_time == row["start_time"] and existing.hr_zones:
+            if (
+                existing
+                and existing.start_time == row["start_time"]
+                and existing.hr_zones
+                and existing.sport == row["sport"]
+            ):
                 skipped += 1
                 continue
             if existing:
@@ -233,8 +242,28 @@ def sync_garmin(user_id: int, limit: int = 50, mfa_code: str | None = None) -> d
     return {"imported": imported, "skipped": skipped}
 
 
+def _user_timezone(api) -> str:
+    """Leitet die Zeitzone des Users aus der neuesten Aktivität ab."""
+    try:
+        acts = api.get_activities(0, 3)
+        for a in acts:
+            tz = a.get("timeZoneId")
+            if tz:
+                return tz
+    except Exception:
+        pass
+    return "UTC"
+
+
 def _sync_health(s, user_id: int, api, days: int = 14) -> None:
-    today = date.today()
+    from zoneinfo import ZoneInfo
+
+    tz_name = _user_timezone(api)
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    today = datetime.now(tz).date()
     for offset in range(days):
         day = today - timedelta(days=offset)
         existing = s.get(HealthDay, (user_id, day))
@@ -245,22 +274,29 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
         try:
             stats = _api_get(api, lambda: api.get_stats(day_str))
             if isinstance(stats, dict):
-                entry.resting_hr = stats.get("restHR")
-                entry.steps = stats.get("steps")
-                entry.stress_avg = stats.get("stressAvg")
-                entry.active_calories = stats.get("activeKilocalories")
+                entry.resting_hr = stats.get("restingHeartRate") or stats.get("restHR")
+                entry.steps = stats.get("totalSteps") or stats.get("steps")
+                entry.stress_avg = stats.get("averageStressLevel") or stats.get("stressAvg")
+                entry.active_calories = stats.get("activeKilocalories") or stats.get("activeCalories")
         except Exception:
             pass
         try:
             sleep = _api_get(api, lambda: api.get_sleep_data(day_str))
-            if isinstance(sleep, dict) and sleep.get("sleepLevels"):
-                levels = sleep["sleepLevels"]["levels"] or []
-                secs = sum(int(l.get("seconds") or 0) for l in levels)
-                deep = sum(
-                    int(l.get("seconds") or 0)
-                    for l in levels
-                    if (l.get("name") or "").lower() in ("deep", "deep_sleep")
-                )
+            if isinstance(sleep, dict):
+                dto = sleep.get("dailySleepDTO") or {}
+                secs = dto.get("sleepTimeSeconds")
+                levels = sleep.get("sleepLevels") or {}
+                if not secs:
+                    raw_levels = levels.get("levels") or []
+                    secs = sum(int(l.get("seconds") or 0) for l in raw_levels) if raw_levels else 0
+                deep = None
+                raw_levels = levels.get("levels") or []
+                if raw_levels:
+                    deep = sum(
+                        int(l.get("seconds") or 0)
+                        for l in raw_levels
+                        if (l.get("name") or l.get("level") or "").lower() in ("deep", "deep_sleep")
+                    )
                 entry.sleep_seconds = secs or None
                 entry.deep_sleep_seconds = deep or None
         except Exception:

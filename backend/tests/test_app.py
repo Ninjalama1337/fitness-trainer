@@ -387,6 +387,60 @@ def test_push_workout_to_devices(monkeypatch):
     assert fake.pushed == [("123", 1)]
 
 
+def test_sport_id_mapping():
+    from backend.app.sports import map_sport_id
+
+    assert map_sport_id(1) == "running"
+    assert map_sport_id(2) == "cycling"
+    assert map_sport_id(44) == "strength"
+    assert map_sport_id(21) == "cycling"
+    assert map_sport_id(999) == "other"
+
+
+def test_zones_garmin_list_format():
+    from backend.app.sports import normalize_zones
+
+    zones = normalize_zones(
+        [
+            {"zoneNumber": 1, "secsInZone": 119.995},
+            {"zoneNumber": 2, "secsInZone": 356.996},
+            {"zoneNumber": 3, "secsInZone": 2865.957},
+            {"zoneNumber": 4, "secsInZone": 2720.977},
+            {"zoneNumber": 5, "secsInZone": 0.0},
+        ]
+    )
+    assert zones["zone1"] == 119
+    assert zones["zone3"] == 2865
+    assert zones["zone5"] == 0
+
+
+def test_normalize_activity_from_list_api():
+    from backend.app.garmin_sync import _normalize_activity
+
+    row = _normalize_activity(
+        {
+            "activityId": "42",
+            "activityName": "Wolfenbüttel Rennradfahren",
+            "sportType": None,
+            "sportTypeId": 2,
+            "startTimeLocal": "2026-08-01 13:29:36",
+            "distance": 40714.69,
+            "duration": 6071.79,
+            "averageHR": 158.0,
+            "calories": 981.0,
+            "hrTimeInZone_1": 120,
+            "hrTimeInZone_2": 357,
+            "hrTimeInZone_3": 2866,
+            "hrTimeInZone_4": 2721,
+            "hrTimeInZone_5": 0,
+        }
+    )
+    assert row["sport"] == "cycling"
+    assert row["distance_km"] == 40.715
+    assert row["avg_hr"] == 158.0
+    assert row["hr_zones"]["zone3"] == 2866
+
+
 def test_credentials_encrypted_at_rest():
     uid = admin_id()
     with TestClient(app) as c:
