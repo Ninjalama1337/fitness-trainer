@@ -525,13 +525,13 @@ def test_sleep_parsing_with_list_sleeplevels(monkeypatch):
 
     monkeypatch.setattr("backend.app.garmin_sync._api_get", lambda api, call, retries=3: call())
     monkeypatch.setattr("backend.app.garmin_sync._user_timezone", lambda api: "UTC")
-    target_date = date.today() - timedelta(days=3)
+    target_date = date.today() - timedelta(days=2)
     with db.session() as s:
         existing = s.get(HealthDay, (1, target_date))
         if existing:
             s.delete(existing)
             s.commit()
-        g._sync_health(s, 1, FakeApi(), days=3)
+        g._sync_health(s, 1, FakeApi(), days=5)
         s.commit()
     with db.session() as s:
         h = s.get(HealthDay, (1, target_date))
