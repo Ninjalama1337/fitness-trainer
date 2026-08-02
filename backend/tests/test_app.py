@@ -224,6 +224,19 @@ def test_stats_summary_includes_daily_activities():
         assert act["duration_min"] > 0
 
 
+def test_trend_endpoint_periods():
+    with TestClient(app) as c:
+        login(c)
+        for period, expected in (("week", 7), ("month", 4), ("year", 12)):
+            r = c.get(f"/api/stats/trend?period={period}")
+            assert r.status_code == 200
+            d = r.json()
+            assert len(d["buckets"]) == expected
+            assert d["totals"]["running_km"] == 8.0
+        r = c.get("/api/stats/trend?period=x")
+        assert r.status_code == 422
+
+
 def test_plan_toggle():
     with TestClient(app) as c:
         login(c)

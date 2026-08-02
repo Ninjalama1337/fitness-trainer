@@ -192,7 +192,169 @@ function switchView(name) {
   if (name === "plan") loadPlan();
   if (name === "activities") loadActivities();
   if (name === "suggestion") loadSuggestion();
+  if (name === "trend") loadTrend(currentTrendPeriod);
   if (name === "settings") loadSettings();
+}
+
+/* ---------- Verlauf ---------- */
+let currentTrendPeriod = "week";
+
+$("#trendPeriodChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  currentTrendPeriod = chip.dataset.period;
+  $$("#trendPeriodChips .chip").forEach((c) => c.classList.toggle("active", c === chip));
+  loadTrend(currentTrendPeriod);
+});
+
+async function loadTrend(period) {
+  const barBox = $("#trendBarChart");
+  barBox.innerHTML = '<div class="skeleton" style="height:130px"></div>';
+  const data = await api(`/api/stats/trend?period=${period}`);
+  const t = data.totals;
+
+  $("#trendCards").innerHTML = "";
+  const cards = [
+    { label: "Lauf-km", value: fmtNum(t.running_km) + " km" },
+    { label: "Rad-km", value: fmtNum(t.cycling_km) + " km" },
+    { label: "Einheiten", value: t.sessions },
+    { label: "Kraft", value: t.strength_count + "×" },
+    { label: "Schlaf Ø", value: t.avg_sleep_h !== null ? fmtNum(t.avg_sleep_h) + " h" : "–" },
+    { label: "Ruhepuls Ø", value: t.avg_resting_hr ? t.avg_resting_hr + " bpm" : "–" },
+    { label: "HFV Ø", value: t.avg_hrv ? fmtNum(t.avg_hrv) + " ms" : "–" },
+    { label: "Kalorien", value: fmtNum(t.calories, 0) },
+  ];
+  cards.forEach((c, i) => {
+    const d = el("div", "card");
+    d.style.animationDelay = i * 0.04 + "s";
+    d.append(el("div", "label", c.label), el("div", "value", c.value));
+    $("#trendCards").append(d);
+  });
+
+  renderTrendBars(data.buckets);
+  renderHealthLines(data.buckets, period);
+}
+
+function renderTrendBars(buckets) {
+  const box = $("#trendBarChart");
+  box.innerHTML = "";
+  const max = Math.max(1, ...buckets.map((b) => Math.max(b.running_km, b.cycling_km)));
+  buckets.forEach((b, i) => {
+    const col = el("div", "bar-col");
+    const stack = el("div", "bar-stack");
+    const runH = b.running_km > 0 ? Math.max(4, (b.running_km / max) * 100) : 0;
+    const cycH = b.cycling_km > 0 ? Math.max(4, (b.cycling_km / max) * 100) : 0;
+    const empty = el("div", "bar");
+    empty.style.flexGrow = 1;
+    if (runH > 0) { const x = el("div", "bar run"); x.style.height = runH + "%"; x.style.animationDelay = i * 0.04 + "s"; stack.append(x); }
+    if (cycH > 0) { const x = el("div", "bar cycle"); x.style.height = cycH + "%"; x.style.animationDelay = i * 0.04 + "s"; stack.append(x); }
+    if (runH === 0 && cycH === 0) stack.append(empty);
+    const label = el("div", "bar-label", b.label);
+    if (b.sessions > 0) label.classList.add("has-data");
+    col.append(stack, label);
+
+    const tip = el("div", "chart-tooltip");
+    tip.append(el("div", "tt-head", b.label));
+    tip.append(el("div", "tt-summary",
+      b.sessions + " Einheit" + (b.sessions !== 1 ? "en" : "") +
+      (b.calories ? " · " + fmtNum(b.calories, 0) + " kcal" : "")));
+    const list = el("div", "tt-list");
+    if (b.running_km) list.append(el("div", "tt-row", "🏃 " + fmtNum(b.running_km) + " km Lauf"));
+    if (b.cycling_km) list.append(el("div", "tt-row", "🚴 " + fmtNum(b.cycling_km) + " km Rad"));
+    if (b.strength_count) list.append(el("div", "tt-row", "🏋️ " + b.strength_count + "× Kraft"));
+    if (b.sleep_h) list.append(el("div", "tt-row", "😴 " + fmtNum(b.sleep_h) + " h Schlaf"));
+    if (b.resting_hr) list.append(el("div", "tt-row", "❤️ Ruhepuls " + b.resting_hr));
+    if (b.hrv) list.append(el("div", "tt-row", "📈 HFV " + fmtNum(b.hrv) + " ms"));
+    if (!list.children.length) list.append(el("div", "tt-row muted", "Keine Daten"));
+    tip.append(list);
+    col.append(tip);
+    col.addEventListener("mouseenter", () => tip.classList.add("show"));
+    col.addEventListener("mouseleave", () => tip.classList.remove("show"));
+    col.addEventListener("click", () => tip.classList.toggle("show"));
+    box.append(col);
+  });
+}
+
+function renderHealthLines(buckets, period) {
+  const box = $("#trendHealth");
+  box.innerHTML = "";
+  $("#trendHealthPeriod").textContent =
+    period === "week" ? "letzte 7 Tage" : period === "month" ? "letzte 4 Wochen" : "letzte 12 Monate";
+
+  const series = [
+    { key: "sleep_h", label: "Schlaf", unit: "h", color: "#5b8cff", digits: 1 },
+    { key: "resting_hr", label: "Ruhepuls", unit: "bpm", color: "#ff8a3c", digits: 0 },
+    { key: "hrv", label: "HFV", unit: "ms", color: "#a87cff", digits: 1 },
+  ];
+
+  series.forEach((s) => {
+    const values = buckets.map((b) => b[s.key]);
+    const has = values.some((v) => v !== null && v !== undefined);
+    const wrap = el("div", "hl-row");
+    const head = el("div", "hl-head");
+    const dot = el("span", "dot hl-dot");
+    dot.style.background = s.color;
+    head.append(dot, el("span", "hl-name", s.label));
+    const last = [...values].reverse().find((v) => v !== null && v !== undefined);
+    head.append(el("span", "hl-last", last !== undefined ? fmtNum(last, s.digits) + " " + s.unit : "–"));
+    wrap.append(head);
+
+    if (!has) {
+      wrap.append(el("div", "hl-empty muted", "Noch keine Daten in diesem Zeitraum"));
+      box.append(wrap);
+      return;
+    }
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 100 36");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.classList.add("hl-svg");
+
+    const nums = values.map((v) => (v === null || v === undefined ? null : v));
+    const valid = nums.filter((v) => v !== null);
+    const min = Math.min(...valid);
+    const max = Math.max(...valid);
+    const span = Math.max(max - min, 0.001);
+    const W = 100, H = 36, PAD = 2;
+    const pts = nums.map((v, i) => {
+      const x = (i / Math.max(nums.length - 1, 1)) * W;
+      const y = v === null ? null : H - PAD - ((v - min) / span) * (H - PAD * 2);
+      return { x, y, v };
+    });
+    const line = pts.filter((p) => p.y !== null);
+    const poly = line.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    const area = line.length
+      ? `${line[0].x.toFixed(1)},${H} ${poly} ${line[line.length - 1].x.toFixed(1)},${H}`
+      : "";
+    if (area) {
+      const a = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      a.setAttribute("points", area);
+      a.setAttribute("fill", s.color);
+      a.setAttribute("opacity", "0.12");
+      svg.append(a);
+    }
+    if (poly) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      p.setAttribute("points", poly);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", s.color);
+      p.setAttribute("stroke-width", "1.6");
+      p.setAttribute("stroke-linejoin", "round");
+      p.setAttribute("stroke-linecap", "round");
+      svg.append(p);
+    }
+    pts.forEach((pt) => {
+      if (pt.y === null) return;
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", pt.x.toFixed(1));
+      c.setAttribute("cy", pt.y.toFixed(1));
+      c.setAttribute("r", "1.6");
+      c.setAttribute("fill", s.color);
+      svg.append(c);
+    });
+    wrap.append(svg);
+    box.append(wrap);
+  });
 }
 
 /* ================= Sync badge ================= */

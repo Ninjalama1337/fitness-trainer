@@ -8,7 +8,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=7">
+  <link rel="stylesheet" href="/css/style.css?v=8">
 </head>
 <body>
   <div id="themeScript"></div>
@@ -105,6 +105,23 @@
         </div>
       </section>
 
+      <section id="view-trend" class="view">
+        <div class="panel">
+          <div class="panel-head"><h2>Verlauf</h2></div>
+          <div class="chips" id="trendPeriodChips">
+            <div class="chip active" data-period="week">7 Tage</div>
+            <div class="chip" data-period="month">4 Wochen</div>
+            <div class="chip" data-period="year">12 Monate</div>
+          </div>
+          <div class="cards" id="trendCards"></div>
+          <div class="barchart" id="trendBarChart" style="height:160px"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Gesundheit</h2><span class="panel-sub" id="trendHealthPeriod"></span></div>
+          <div id="trendHealth" class="health-lines"></div>
+        </div>
+      </section>
+
       <section id="view-settings" class="view">
         <div class="panel">
           <div class="panel-head"><h2>Garmin verbinden</h2></div>
@@ -168,6 +185,7 @@
       <button data-view="dashboard" class="active"><span>📊</span>Dashboard</button>
       <button data-view="plan"><span>🗓️</span>Plan</button>
       <button data-view="activities"><span>🏃</span>Aktivitäten</button>
+      <button data-view="trend"><span>📈</span>Verlauf</button>
       <button data-view="suggestion"><span>💡</span>Vorschlag<span class="nav-badge" id="suggBadge" hidden></span></button>
       <button data-view="settings"><span>⚙️</span>Einstellungen</button>
     </nav>
@@ -188,6 +206,6 @@
 
   <div id="toasts" class="toasts"></div>
 
-  <script src="/js/app.js?v=7"></script>
+  <script src="/js/app.js?v=8"></script>
 </body>
 </html>

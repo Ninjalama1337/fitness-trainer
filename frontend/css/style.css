@@ -347,6 +347,16 @@ select.text-input { appearance: none; background-image: linear-gradient(45deg, t
 .user-row .u-sub { font-size: .72rem; color: var(--muted); }
 .user-row .u-actions { display: flex; gap: 6px; }
 
+/* ===== Verlauf (Health-Linien) ===== */
+.health-lines { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+.hl-row { display: flex; flex-direction: column; gap: 4px; }
+.hl-head { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 700; }
+.hl-dot { width: 10px; height: 10px; border-radius: 3px; }
+.hl-name { flex: 1; }
+.hl-last { color: var(--muted); font-weight: 700; font-size: .82rem; }
+.hl-svg { width: 100%; height: 44px; overflow: visible; }
+.hl-empty { font-size: .74rem; padding: 4px 0 2px; }
+
 /* ===== Bottom Nav ===== */
 .bottomnav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;

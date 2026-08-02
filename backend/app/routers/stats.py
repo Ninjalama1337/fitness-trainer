@@ -1,13 +1,22 @@
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 
 from .. import auth
 from ..db import session
 from ..models import Activity, HealthDay, User
+from ..plan_service import iso_week
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
+
+PERIOD_DAYS = {"week": 7, "month": 28, "year": 365}
+PERIOD_LABELS = {
+    "week": ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+    "month": [],
+    "year": [],
+}
+MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
 
 
 @router.get("/summary")
@@ -109,6 +118,147 @@ def summary(
         totals["avg_hr"] = round(sum(hrs) / len(hrs), 0)
 
     return {"days": days, "totals": totals, "series": series}
+
+
+@router.get("/trend")
+def trend(
+    user: User = Depends(auth.get_current_user),
+    period: str = Query(default="week", pattern="^(week|month|year)$"),
+):
+    """Verlauf: wöchentliche (7 Tage), monatliche (4 Wochen) oder jährliche (12 Monate) Aggregation."""
+    days = PERIOD_DAYS[period]
+    since = datetime.now() - timedelta(days=days)
+    since_day = date.today() - timedelta(days=days)
+    with session() as s:
+        acts = s.exec(
+            select(Activity).where(Activity.user_id == user.id, Activity.start_time >= since)
+        ).all()
+        health = s.exec(
+            select(HealthDay).where(HealthDay.user_id == user.id, HealthDay.date >= since_day)
+        ).all()
+
+    def bucket_key(d: date) -> str:
+        if period == "week":
+            return d.isoformat()
+        if period == "month":
+            return iso_week(d)
+        return f"{d.year:04d}-{d.month:02d}"
+
+    def bucket_label(key: str) -> str:
+        if period == "week":
+            return ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][date.fromisoformat(key).weekday()]
+        if period == "month":
+            return "W" + key.split("-W")[1]
+        _, m = key.split("-")
+        return MONTH_NAMES[int(m) - 1]
+
+    buckets: dict[str, dict] = {}
+    for a in acts:
+        key = bucket_key(a.start_time.date())
+        b = buckets.setdefault(
+            key,
+            {
+                "running_km": 0.0,
+                "cycling_km": 0.0,
+                "strength_count": 0,
+                "sessions": 0,
+                "calories": 0.0,
+                "sleep_h": None,
+                "resting_hr": None,
+                "hrv": None,
+            },
+        )
+        b["sessions"] += 1
+        if a.sport == "running" and a.distance_km:
+            b["running_km"] += a.distance_km
+        elif a.sport == "cycling" and a.distance_km:
+            b["cycling_km"] += a.distance_km
+        elif a.sport == "strength":
+            b["strength_count"] += 1
+        b["calories"] += a.calories or 0
+
+    for h in health:
+        key = bucket_key(h.date)
+        b = buckets.setdefault(
+            key,
+            {
+                "running_km": 0.0,
+                "cycling_km": 0.0,
+                "strength_count": 0,
+                "sessions": 0,
+                "calories": 0.0,
+                "sleep_h": None,
+                "resting_hr": None,
+                "hrv": None,
+            },
+        )
+        if h.sleep_seconds:
+            b["sleep_h"] = round(h.sleep_seconds / 3600, 1)
+        if h.resting_hr:
+            b["resting_hr"] = round(h.resting_hr)
+        if h.hrv_avg:
+            b["hrv"] = round(h.hrv_avg, 1)
+
+    ordered: list[dict] = []
+    empty = {
+        "running_km": 0.0,
+        "cycling_km": 0.0,
+        "strength_count": 0,
+        "sessions": 0,
+        "calories": 0.0,
+        "sleep_h": None,
+        "resting_hr": None,
+        "hrv": None,
+    }
+
+    def bucket(buckets: dict, key: str) -> dict:
+        return {**empty, **(buckets.get(key) or {})}
+
+    if period == "week":
+        for i in range(7):
+            d = date.today() - timedelta(days=6 - i)
+            key = bucket_key(d)
+            ordered.append({"label": bucket_label(key), "key": key, **bucket(buckets, key)})
+    elif period == "month":
+        # letzte 4 ISO-Wochen (aktuell rückwärts)
+        start = date.today() - timedelta(days=21)
+        seen = set()
+        current = start
+        week_keys = []
+        while len(week_keys) < 4:
+            wk = iso_week(current)
+            if wk not in seen:
+                week_keys.append(wk)
+                seen.add(wk)
+            current += timedelta(days=7)
+        for wk in week_keys:
+            ordered.append({"label": bucket_label(wk), "key": wk, **bucket(buckets, wk)})
+    else:
+        start = date.today().replace(day=1)
+        for i in range(12):
+            y = start.year - (11 - i) // 12
+            m = start.month - ((11 - i) % 12)
+            if m < 1:
+                m += 12
+                y -= 1
+            key = f"{y:04d}-{m:02d}"
+            ordered.append({"label": bucket_label(key), "key": key, **bucket(buckets, key)})
+
+    totals = {
+        "sessions": sum(b["sessions"] for b in ordered),
+        "running_km": round(sum(b["running_km"] for b in ordered), 1),
+        "cycling_km": round(sum(b["cycling_km"] for b in ordered), 1),
+        "strength_count": sum(b["strength_count"] for b in ordered),
+        "calories": sum(b["calories"] for b in ordered),
+    }
+    sleeps = [b["sleep_h"] for b in ordered if b["sleep_h"]]
+    rests = [b["resting_hr"] for b in ordered if b["resting_hr"]]
+    hrvs = [b["hrv"] for b in ordered if b["hrv"]]
+    totals["avg_sleep_h"] = round(sum(sleeps) / len(sleeps), 1) if sleeps else None
+    totals["avg_resting_hr"] = round(sum(rests) / len(rests)) if rests else None
+    totals["avg_hrv"] = round(sum(hrvs) / len(hrvs), 1) if hrvs else None
+
+    return {"period": period, "buckets": ordered, "totals": totals}
 
 
 @router.get("/zones")
