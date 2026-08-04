@@ -33,6 +33,10 @@ def _clear_rate_limit():
 
 def seed_data(user_id: int = 1):
     with db.session() as s:
+        from sqlalchemy import delete
+
+        for m in (Activity, HealthDay, PlanDay):
+            s.exec(delete(m).where(m.user_id == user_id))
         base = datetime.now() - timedelta(days=2)
         s.add(
             Activity(
@@ -729,3 +733,60 @@ def test_credentials_encrypted_at_rest():
         assert row is not None
         assert "geheim" not in row.password
         assert row.password != "geheim"
+
+
+def test_stats_weight_recovery_predictions_heatmap():
+    uid = admin_id()
+    seed_data(uid)
+    with db.session() as s:
+        s.add(
+            HealthDay(
+                user_id=uid,
+                date=date.today() - timedelta(days=1),
+                weight_kg=80.5,
+                body_fat_pct=18.2,
+            )
+        )
+        s.commit()
+    with TestClient(app) as c:
+        login(c)
+        w = c.get("/api/stats/weight?days=90")
+        assert w.status_code == 200
+        assert any(p["weight_kg"] == 80.5 for p in w.json()["points"])
+
+        r = c.get("/api/stats/recovery")
+        assert r.status_code == 200
+        assert "status" in r.json() and "acwr" in r.json()
+
+        p = c.get("/api/stats/race-predictions")
+        assert p.status_code == 200
+        assert p.json()["items"], "Seed-Lauf sollte eine Prognose ergeben"
+
+        h = c.get("/api/stats/heatmap?days=30")
+        assert h.status_code == 200
+        assert h.json()["series"]
+
+
+def test_monthly_summary_and_push_status():
+    with TestClient(app) as c:
+        login(c)
+        m = c.get("/api/monthly-summary")
+        assert m.status_code == 200
+        assert m.json()["ok"] is False
+
+        p = c.get("/api/push/status")
+        assert p.status_code == 200
+        assert "supported" in p.json()
+
+        sub = c.post(
+            "/api/push/subscribe",
+            json={
+                "endpoint": "https://push.example.test/abc",
+                "p256dh": "x" * 20,
+                "auth_key": "y" * 20,
+            },
+            headers={"Origin": "http://testserver"},
+        )
+        assert sub.status_code == 200
+        status = c.get("/api/push/status")
+        assert status.json()["subscriptions"] == 1

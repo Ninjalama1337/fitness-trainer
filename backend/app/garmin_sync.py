@@ -272,6 +272,7 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
     except Exception:
         tz = ZoneInfo("UTC")
     today = datetime.now(tz).date()
+    _sync_body_composition(s, user_id, api, today, days=min(days, 30))
     for offset in range(days):
         day = today - timedelta(days=offset)
         existing = s.get(HealthDay, (user_id, day))
@@ -335,6 +336,35 @@ def _sync_health(s, user_id: int, api, days: int = 14) -> None:
             logger.exception("get_sleep_data(%s) fehlgeschlagen", day_str)
         if entry.sleep_seconds or entry.active_calories or entry.steps or entry.hrv_avg or entry.resting_hr:
             s.add(entry)
+
+
+def _sync_body_composition(s, user_id: int, api, today: date, days: int = 30) -> None:
+    """Gewicht/Körperfett aus dem Garmin Weight-Service (ein Range-Call)."""
+    try:
+        start = (today - timedelta(days=days)).isoformat()
+        body = _api_get(api, lambda: api.get_body_composition(start, today.isoformat()))
+    except Exception as exc:
+        logger.info("get_body_composition fehlgeschlagen: %s", str(exc)[:150])
+        return
+    if not isinstance(body, dict):
+        return
+    date_list = body.get("dateWeightList")
+    if not isinstance(date_list, list):
+        logger.info("Körperdaten unerwartetes Format: %s", str(body)[:150])
+        return
+    for item in date_list:
+        if not isinstance(item, dict):
+            continue
+        try:
+            day = date.fromisoformat(str(item.get("date", "")))
+        except ValueError:
+            continue
+        entry = s.get(HealthDay, (user_id, day)) or HealthDay(user_id=user_id, date=day)
+        if item.get("weight") is not None:
+            entry.weight_kg = round(float(item["weight"]), 1)
+        if item.get("bodyFat") is not None:
+            entry.body_fat_pct = round(float(item["bodyFat"]), 1)
+        s.add(entry)
 
 
 def update_sync_state(user_id: int, status: str, message: str) -> None:

@@ -8,7 +8,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=12">
+  <link rel="stylesheet" href="/css/style.css?v=13">
 </head>
 <body>
   <div id="themeScript"></div>
@@ -57,6 +57,10 @@
           <div class="panel-head"><h2>Wochen-Rückblick</h2><span class="panel-sub" id="weekSummaryWeek"></span></div>
           <div id="weekSummaryBox"></div>
         </div>
+        <div class="panel" id="monthSummaryPanel">
+          <div class="panel-head"><h2>Monatsanalyse</h2><span class="panel-sub" id="monthSummaryMonth"></span></div>
+          <div id="monthSummaryBox"></div>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Monatsziel</h2><span class="panel-sub" id="goalMonth"></span></div>
           <div id="goalBox" class="goal-box"></div>
@@ -68,6 +72,22 @@
         <div class="panel">
           <div class="panel-head"><h2>Rekorde</h2><span class="panel-sub">laufen</span></div>
           <div id="pbBox" class="pb-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Regeneration</h2><span class="panel-sub" id="recZone"></span></div>
+          <div id="recBox" class="load-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Rennprognose</h2><span class="panel-sub" id="predBase"></span></div>
+          <div id="predBox" class="pb-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Gewicht &amp; Körperfett</h2><span class="panel-sub">90 Tage</span></div>
+          <div id="weightBox" class="weight-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Aktivitäts-Jahreskalender</h2><span class="panel-sub">Intensität</span></div>
+          <div id="heatmapBox" class="heatmap-box"></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Letzte Woche</h2><span class="panel-sub" id="dashBarLabel">7 Tage</span></div>
@@ -181,6 +201,12 @@
           <div id="settingsStatus" class="status-list"></div>
           <button class="btn" id="syncNow">Jetzt synchronisieren</button>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Push-Benachrichtigungen</h2><span class="panel-sub" id="pushState"></span></div>
+          <p class="muted" id="pushText">Trainings-Erinnerung täglich um 7:30 Uhr und Benachrichtigung bei Sync-Fehlern – auch bei geschlossener App.</p>
+          <button class="btn" id="pushEnable">Aktivieren</button>
+          <button class="btn" id="pushTest" hidden>Test-Benachrichtigung senden</button>
+        </div>
         <div id="adminPanel" class="panel" hidden>
           <div class="panel-head"><h2>Benutzerverwaltung</h2><span class="panel-sub">Admin</span></div>
           <div id="userList" class="user-list"></div>
@@ -233,6 +259,6 @@
 
   <div id="toasts" class="toasts"></div>
 
-  <script src="/js/app.js?v=12"></script>
+  <script src="/js/app.js?v=13"></script>
 </body>
 </html>

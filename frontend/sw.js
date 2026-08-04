@@ -1,9 +1,9 @@
-const CACHE = "fitness-trainer-v12";
+const CACHE = "fitness-trainer-v13";
 const ASSETS = [
   "/",
   "/index.html",
-  "/css/style.css?v=12",
-  "/js/app.js?v=12",
+  "/css/style.css?v=13",
+  "/js/app.js?v=13",
   "/manifest.json",
   "/icons/icon.svg",
 ];
@@ -61,13 +61,33 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  let url = "/";
+  if (event.notification.tag === "sync-error") url = "/#settings";
+  if (event.notification.tag === "plan-today") url = "/#plan";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      if (clients.length) {
-        clients[0].focus();
-      } else {
-        self.clients.openWindow("/");
+      for (const client of clients) {
+        if ("navigate" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
       }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let data = { title: "Fitness Trainer", body: "" };
+  try {
+    if (event.data) data = event.data.json();
+  } catch (e) {}
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Fitness Trainer", {
+      body: data.body || "",
+      tag: data.tag || "fitness",
+      icon: "/icons/icon.svg",
+      badge: "/icons/icon.svg",
     })
   );
 });

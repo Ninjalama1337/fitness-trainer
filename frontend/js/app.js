@@ -376,12 +376,16 @@ async function refreshSettings() {
 async function loadDashboard() {
   const skel = $("#dashRings");
   skel.innerHTML = "";
-  const [sum, zones, loadData, pbData, goalData] = await Promise.all([
+  const [sum, zones, loadData, pbData, goalData, recData, predData, weightData, heatData] = await Promise.all([
     api("/api/stats/summary?days=7"),
     api("/api/stats/zones?days=30"),
     api("/api/stats/load"),
     api("/api/stats/pbs"),
     api("/api/goals"),
+    api("/api/stats/recovery"),
+    api("/api/stats/race-predictions"),
+    api("/api/stats/weight?days=90"),
+    api("/api/stats/heatmap?days=365"),
   ]);
   renderRings(sum.totals);
   renderCards(sum.totals);
@@ -390,7 +394,208 @@ async function loadDashboard() {
   renderLoad(loadData);
   renderPbs(pbData);
   renderGoal(goalData);
+  renderRecovery(recData);
+  renderPredictions(predData);
+  renderWeightChart(weightData);
+  renderHeatmap(heatData);
   loadWeekSummary();
+  loadMonthSummary();
+}
+
+/* ---------- Monatsanalyse ---------- */
+async function loadMonthSummary() {
+  const box = $("#monthSummaryBox");
+  box.innerHTML = "";
+  let data;
+  try {
+    data = await api("/api/monthly-summary");
+  } catch (e) {
+    return;
+  }
+  $("#monthSummaryMonth").textContent = data.month;
+  if (!data.ok) {
+    const p = el("p", "muted small", "Noch keine Monatsanalyse – entsteht automatisch nach dem nächsten Garmin-Sync.");
+    const btn = el("button", "btn-mini", "Jetzt analysieren");
+    btn.style.marginTop = "8px";
+    btn.addEventListener("click", async () => {
+      try {
+        await api("/api/monthly-summary/generate", { method: "POST" });
+        toast("Monatsanalyse erstellt", "ok");
+        loadMonthSummary();
+      } catch (e) {
+        toast("LLM nicht konfiguriert", "err");
+      }
+    });
+    box.append(p, btn);
+    return;
+  }
+  const card = el("div", "summary-card");
+  card.append(el("div", "s-label", "Zusammenfassung"));
+  card.append(el("div", "s-text", data.summary || ""));
+  if (data.advice) {
+    card.append(el("div", "s-label", "Empfehlung"));
+    card.append(el("div", "s-text", data.advice));
+  }
+  box.append(card);
+}
+
+/* ---------- Regeneration (Übertrainings-Check) ---------- */
+function renderRecovery(r) {
+  const zone = $("#recZone");
+  zone.textContent = r.status === "warnung" ? "⚠ Vorsicht" : r.status === "achtung" ? "⚡ Achtung" : "✓ erholt";
+  zone.style.color = r.status === "warnung" ? "var(--warn)" : r.status === "achtung" ? "var(--cycle)" : "var(--ok)";
+  const box = $("#recBox");
+  box.innerHTML = "";
+  const items = [
+    { label: "Belastung ACWR", value: r.acwr !== null ? fmtNum(r.acwr, 2) : "–" },
+    { label: "HFV 7T / 28T", value: r.hrv_7d !== null ? fmtNum(r.hrv_7d) + " / " + fmtNum(r.hrv_28d) + " ms" : "–" },
+    { label: "HFV-Trend", value: r.hrv_delta_pct !== null ? (r.hrv_delta_pct > 0 ? "+" : "") + fmtNum(r.hrv_delta_pct) + " %" : "–" },
+    { label: "Ruhepuls-Trend", value: r.resting_hr_delta !== null ? (r.resting_hr_delta > 0 ? "+" : "") + fmtNum(r.resting_hr_delta) + " bpm" : "–" },
+  ];
+  const row = el("div", "load-row");
+  items.forEach((it) => {
+    const c = el("div", "load-item");
+    c.append(el("div", "load-value", it.value), el("div", "load-label", it.label));
+    row.append(c);
+  });
+  box.append(row);
+  if (r.signals.length) {
+    r.signals.forEach((sg) => {
+      const p = el("div", "muted small");
+      p.style.color = sg.level === "warnung" ? "var(--warn)" : "var(--cycle)";
+      p.textContent = "⚠ " + sg.text;
+      box.append(p);
+    });
+  } else {
+    box.append(el("div", "muted small", "Alles im grünen Bereich – keine Warnsignale für Übertraining."));
+  }
+}
+
+/* ---------- Rennprognose ---------- */
+function renderPredictions(p) {
+  $("#predBase").textContent = p.base ? p.base.activity_name + " (" + fmtNum(p.base.distance_km) + " km)" : "";
+  const box = $("#predBox");
+  box.innerHTML = "";
+  if (!p.items.length) {
+    box.append(el("p", "muted small", "Nach den ersten Laufeinheiten erscheint hier deine Prognose für 5k/10k/HM/M."));
+    return;
+  }
+  const row = el("div", "pb-row");
+  p.items.forEach((it) => {
+    const c = el("div", "pb-item");
+    const h = Math.floor(it.time_seconds / 3600);
+    const m = Math.floor((it.time_seconds % 3600) / 60);
+    const ss = String(it.time_seconds % 60).padStart(2, "0");
+    c.append(el("div", "pb-value", (h ? h + ":" : "") + String(m).padStart(2, "0") + ":" + ss), el("div", "pb-label", it.label));
+    c.title = "Ø " + fmtNum(it.pace_min_km, 2) + " min/km";
+    row.append(c);
+  });
+  box.append(row);
+  box.append(el("div", "muted small", "Cameron-Formel aus deinem schnellsten Lauf – dient als Orientierung."));
+}
+
+/* ---------- Gewicht & Körperfett ---------- */
+function renderWeightChart(w) {
+  const box = $("#weightBox");
+  box.innerHTML = "";
+  const weights = w.points.filter((p) => p.weight_kg !== null);
+  const fats = w.points.filter((p) => p.body_fat_pct !== null);
+  if (!weights.length && !fats.length) {
+    box.append(el("p", "muted small", "Noch keine Körperdaten – erscheinen nach dem nächsten Garmin-Sync (Gewicht/Körperfett aus der Waage)."));
+    return;
+  }
+  const statsRow = el("div", "load-row");
+  if (weights.length) {
+    const cur = weights[weights.length - 1].weight_kg;
+    const min = Math.min(...weights.map((p) => p.weight_kg));
+    const max = Math.max(...weights.map((p) => p.weight_kg));
+    const c = el("div", "load-item");
+    c.append(el("div", "load-value", fmtNum(cur) + " kg"), el("div", "load-label", "aktuell (min " + fmtNum(min) + " / max " + fmtNum(max) + ")"));
+    statsRow.append(c);
+  }
+  if (fats.length) {
+    const cur = fats[fats.length - 1].body_fat_pct;
+    const c = el("div", "load-item");
+    c.append(el("div", "load-value", fmtNum(cur) + " %"), el("div", "load-label", "Körperfett aktuell"));
+    statsRow.append(c);
+  }
+  box.append(statsRow);
+
+  const W = 640, H = 140, P = 8;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.classList.add("weight-svg");
+  if (weights.length > 1) {
+    const vals = weights.map((p) => p.weight_kg);
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const span = Math.max(maxV - minV, 0.5);
+    const x = (i) => P + (i / (vals.length - 1)) * (W - 2 * P);
+    const y = (v) => H - P - ((v - minV) / span) * (H - 2 * P);
+    const path = el("path", "");
+    path.setAttribute("d", vals.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" "));
+    path.setAttribute("fill", "none");
+    path.classList.add("weight-line");
+    svg.append(path);
+    vals.forEach((v, i) => {
+      if (i % 7 === 0) {
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", x(i).toFixed(1)); c.setAttribute("cy", y(v).toFixed(1)); c.setAttribute("r", "2.5");
+        c.classList.add("weight-dot");
+        svg.append(c);
+      }
+    });
+  }
+  box.append(svg);
+}
+
+/* ---------- Aktivitäts-Jahreskalender ---------- */
+function renderHeatmap(h) {
+  const box = $("#heatmapBox");
+  box.innerHTML = "";
+  const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  const byDate = {};
+  h.series.forEach((s) => {
+    if (s.km > 0) byDate[s.date] = s;
+  });
+  const days = Object.keys(byDate).length;
+  if (!days) {
+    box.append(el("p", "muted small", "Noch keine Aktivitäten – der Kalender füllt sich mit deinen Einheiten."));
+    return;
+  }
+  const maxKm = Math.max(1, ...h.series.map((s) => s.km));
+  const grid = el("div", "hm-grid");
+  const months = {};
+  h.series.forEach((s) => {
+    const m = s.date.slice(0, 7);
+    if (!months[m]) months[m] = 0;
+  });
+  Object.keys(months).sort().forEach((m) => {
+    const col = el("div", "hm-col");
+    const mLbl = el("div", "hm-month", MONTH_NAMES[parseInt(m.slice(5)) - 1].slice(0, 1));
+    col.append(mLbl);
+    h.series.filter((s) => s.date.startsWith(m)).forEach((s) => {
+      const cell = el("div", "hm-cell");
+      const km = s.km;
+      if (km > 0) {
+        const level = km >= maxKm * 0.75 ? 4 : km >= maxKm * 0.5 ? 3 : km >= maxKm * 0.25 ? 2 : 1;
+        cell.classList.add("lvl" + level);
+        cell.title = s.date + ": " + fmtNum(km) + " km" + (s.sessions > 1 ? " · " + s.sessions + " Einheiten" : "");
+      } else {
+        cell.title = s.date;
+      }
+      col.append(cell);
+    });
+    grid.append(col);
+  });
+  box.append(grid);
+  const legend = el("div", "hm-legend");
+  legend.append(el("span", "muted small", "weniger "));
+  for (let i = 1; i <= 4; i++) {
+    const c = el("div", "hm-cell lvl" + i);
+    legend.append(c);
+  }
+  legend.append(el("span", "muted small", " mehr"));
+  box.append(legend);
 }
 
 /* ---------- Wochen-Rückblick ---------- */
@@ -1091,7 +1296,109 @@ function updateSuggBadge() {
   // Badge: neuer Vorschlag seit letztem Besuch dieser Ansicht
 }
 
-/* ================= Settings ================= */
+/* ================= Push-Benachrichtigungen ================= */
+async function loadPushState() {
+  const state = $("#pushState");
+  const text = $("#pushText");
+  let status;
+  try {
+    status = await api("/api/push/status");
+  } catch (e) {
+    state.textContent = "nicht verfügbar";
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !status.supported) {
+    state.textContent = "nicht unterstützt";
+    text.textContent = "Dieser Browser unterstützt keine Push-Benachrichtigungen.";
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  const active = !!sub && status.subscriptions > 0;
+  $("#pushEnable").textContent = active ? "Abonnement entfernen" : "Aktivieren";
+  $("#pushTest").hidden = !active;
+  state.textContent = active ? "✓ aktiv" : "inaktiv";
+  text.textContent = active
+    ? "Benachrichtigungen aktiv – Trainings-Erinnerung um 7:30 Uhr und Hinweise bei Sync-Fehlern."
+    : "Trainings-Erinnerung täglich um 7:30 Uhr und Benachrichtigung bei Sync-Fehlern – auch bei geschlossener App.";
+}
+
+async function setupPushSubscription() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return toast("Push wird von diesem Browser nicht unterstützt", "err");
+  }
+  if (Notification.permission !== "granted") {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return toast("Berechtigung abgelehnt", "err");
+  }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    const status = await api("/api/push/status");
+    if (!status.public_key) return toast("Push ist serverseitig nicht konfiguriert", "err");
+    const converted = urlBase64ToUint8Array(status.public_key);
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: converted,
+    });
+  }
+  const json = sub.toJSON();
+  await api("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint: sub.endpoint,
+      p256dh: json.keys.p256dh,
+      auth_key: json.keys.auth,
+    }),
+  });
+  toast("Push-Benachrichtigungen aktiviert", "ok");
+  loadPushState();
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+$("#pushEnable").addEventListener("click", async (e) => {
+  const btn = e.target;
+  if (btn.textContent === "Aktivieren") {
+    await setupPushSubscription();
+  } else {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api("/api/push/unsubscribe", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: sub.endpoint,
+          p256dh: sub.toJSON().keys.p256dh,
+          auth_key: sub.toJSON().keys.auth,
+        }),
+      });
+      await sub.unsubscribe();
+    }
+    toast("Push deaktiviert", "ok");
+    loadPushState();
+  }
+});
+
+$("#pushTest").addEventListener("click", async () => {
+  try {
+    await api("/api/push/test", { method: "POST" });
+    toast("Test-Benachrichtigung gesendet", "ok");
+  } catch (e) {
+    toast("Senden fehlgeschlagen: " + e.message, "err");
+  }
+});
+
+/* ================= Garmin Sync ================= */
 async function loadSettings() {
   await refreshSettings();
   const s = settings;
@@ -1119,6 +1426,9 @@ async function loadSettings() {
     ? "Aktuell: " + s.llm.provider + (s.llm.model ? " · " + s.llm.model : "") + " (bereit)"
     : s.llm.error || "Nicht konfiguriert";
   if (me.llm_provider) $("#llmProvider").value = me.llm_provider;
+
+  /* Push-Status */
+  loadPushState();
 
   /* Admin-Bereich */
   $("#adminPanel").hidden = !me.is_admin;

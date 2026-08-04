@@ -60,6 +60,13 @@ def _migrate_columns() -> None:
     except Exception:
         pass
     try:
+        _add_columns(
+            "health_days",
+            {"weight_kg": "REAL", "body_fat_pct": "REAL"},
+        )
+    except Exception:
+        pass
+    try:
         _add_columns("activities", {"training_load": "REAL"})
     except Exception:
         pass

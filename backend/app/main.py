@@ -21,6 +21,8 @@ from .routers import (
     upload,
     users,
     weekly_summary,
+    monthly_summary,
+    push,
 )
 
 logger = logging.getLogger("fitness")
@@ -47,13 +49,27 @@ def run_scheduled_sync() -> None:
                 f"Auto-Sync: {result['imported']} neu, {result['skipped']} übersprungen",
             )
             if result.get("imported", 0) > 0:
-                from .plan_service import ensure_week_summary
+                from .plan_service import ensure_month_summary, ensure_week_summary
 
                 ensure_week_summary(user.id)
+                ensure_month_summary(user.id)
             logger.info("Auto-Sync OK (User %s): %s", user.id, result)
         except Exception as exc:
             logger.warning("Auto-Sync fehlgeschlagen (User %s): %s", user.id, exc)
             garmin_sync.update_sync_state(user.id, "error", f"Auto-Sync fehlgeschlagen: {exc}")
+            from . import push
+
+            push.notify_sync_error(user.id, str(exc))
+
+
+def run_daily_plan_reminder() -> None:
+    from .models import User
+    from .push import notify_daily_plan
+
+    with db.session() as s:
+        users = s.exec(select(User)).all()
+    for user in users:
+        notify_daily_plan(user.id)
 
 
 @asynccontextmanager
@@ -67,12 +83,22 @@ async def lifespan(app: FastAPI):
             id="garmin_sync",
         )
         scheduler.start()
+    try:
+        scheduler.add_job(
+            run_daily_plan_reminder,
+            "cron",
+            hour=7,
+            minute=30,
+            id="plan_reminder",
+        )
+    except Exception:
+        pass
     yield
     if scheduler.running:
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Fitness Trainer", version="1.2.0", lifespan=lifespan)
+app = FastAPI(title="Fitness Trainer", version="1.3.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -100,6 +126,8 @@ app.include_router(plan.router)
 app.include_router(suggestion.router)
 app.include_router(settings.router)
 app.include_router(weekly_summary.router)
+app.include_router(monthly_summary.router)
+app.include_router(push.router)
 app.include_router(debug.router)
 
 

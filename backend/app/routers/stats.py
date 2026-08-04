@@ -348,6 +348,174 @@ def training_load(user: User = Depends(auth.get_current_user)):
     }
 
 
+@router.get("/weight")
+def weight_series(
+    user: User = Depends(auth.get_current_user),
+    days: int = Query(default=90, le=365),
+):
+    """Gewicht + Körperfett als Tagesreihe (nur Tage mit Messwerten)."""
+    since = date.today() - timedelta(days=days)
+    with session() as s:
+        health = s.exec(
+            select(HealthDay).where(HealthDay.user_id == user.id, HealthDay.date >= since)
+        ).all()
+    points = [
+        {
+            "date": h.date.isoformat(),
+            "weight_kg": h.weight_kg,
+            "body_fat_pct": h.body_fat_pct,
+        }
+        for h in sorted(health, key=lambda x: x.date)
+        if h.weight_kg is not None or h.body_fat_pct is not None
+    ]
+    return {"days": days, "points": points}
+
+
+@router.get("/recovery")
+def recovery_status(user: User = Depends(auth.get_current_user)):
+    """Übertrainings-Erkennung: ACWR (Belastung), HFV-Trend, Ruhepuls-Trend."""
+    now = datetime.now()
+    today = date.today()
+    with session() as s:
+        acts = s.exec(
+            select(Activity).where(
+                Activity.user_id == user.id,
+                Activity.start_time >= now - timedelta(days=28),
+                Activity.training_load.isnot(None),
+            )
+        ).all()
+        health = s.exec(
+            select(HealthDay).where(HealthDay.user_id == user.id, HealthDay.date >= today - timedelta(days=28))
+        ).all()
+
+    load_7 = sum(a.training_load or 0 for a in acts if a.start_time >= now - timedelta(days=7))
+    load_28 = sum(a.training_load or 0 for a in acts)
+    acwr = round(load_7 / (load_28 / 4), 2) if load_28 > 0 else None
+
+    def avg(vals: list[float]) -> float | None:
+        vals = [v for v in vals if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    by_day = {h.date: h for h in health}
+    days_7 = [today - timedelta(days=i) for i in range(7)]
+    days_28 = [today - timedelta(days=i) for i in range(28)]
+
+    hrv_7 = avg([by_day.get(d).hrv_avg for d in days_7 if by_day.get(d)])
+    hrv_28 = avg([by_day.get(d).hrv_avg for d in days_28 if by_day.get(d)])
+    rhr_7 = avg([by_day.get(d).resting_hr for d in days_7 if by_day.get(d)])
+    rhr_28 = avg([by_day.get(d).resting_hr for d in days_28 if by_day.get(d)])
+
+    hrv_delta = round((hrv_7 - hrv_28) * 100 / hrv_28, 1) if hrv_7 and hrv_28 else None
+    rhr_delta = round(rhr_7 - rhr_28, 1) if rhr_7 and rhr_28 else None
+
+    signals: list[dict] = []
+    if acwr is not None:
+        if acwr > 1.5:
+            signals.append({"level": "warnung", "text": f"Belastung stark erhöht (ACWR {acwr}) – Regeneration einplanen"})
+        elif acwr > 1.3:
+            signals.append({"level": "achtung", "text": f"Belastung erhöht (ACWR {acwr}) – Umfang nicht weiter steigern"})
+        elif acwr < 0.8:
+            signals.append({"level": "achtung", "text": f"Belastung niedrig (ACWR {acwr}) – Form erhältst du nur mit Reizen"})
+    if hrv_delta is not None and hrv_delta < -10:
+        signals.append({"level": "warnung", "text": f"HFV 7 Tage {hrv_delta}% unter Baseline – Erholung oder Krankheit möglich"})
+    if rhr_delta is not None and rhr_delta >= 5:
+        signals.append({"level": "warnung", "text": f"Ruhepuls +{rhr_delta} bpm über Baseline – Regeneration dringend empfohlen"})
+
+    status = "erholt"
+    if any(sg["level"] == "warnung" for sg in signals):
+        status = "warnung"
+    elif any(sg["level"] == "achtung" for sg in signals):
+        status = "achtung"
+
+    return {
+        "status": status,
+        "acwr": acwr,
+        "load_7d": round(load_7, 1),
+        "load_28d_avg": round(load_28 / 4, 1),
+        "hrv_7d": round(hrv_7, 1) if hrv_7 else None,
+        "hrv_28d": round(hrv_28, 1) if hrv_28 else None,
+        "hrv_delta_pct": hrv_delta,
+        "resting_hr_7d": round(rhr_7, 1) if rhr_7 else None,
+        "resting_hr_28d": round(rhr_28, 1) if rhr_28 else None,
+        "resting_hr_delta": rhr_delta,
+        "signals": signals,
+    }
+
+
+@router.get("/race-predictions")
+def race_predictions(user: User = Depends(auth.get_current_user)):
+    """Zeitprognose 5k/10k/HM/M nach Cameron aus dem besten vorhandenen Lauf."""
+    with session() as s:
+        runs = s.exec(
+            select(Activity).where(
+                Activity.user_id == user.id,
+                Activity.sport == "running",
+                Activity.distance_km.isnot(None),
+                Activity.distance_km >= 1.0,
+            )
+        ).all()
+    if not runs:
+        return {"items": [], "base": None}
+    def pace_of(a: Activity) -> float:
+        return a.avg_pace_min_km or (a.duration_seconds / max(a.distance_km or 1, 0.001) / 60)
+    fastest = min(runs, key=pace_of)
+    base_pace = pace_of(fastest)
+    base_km = fastest.distance_km
+
+    targets = [
+        ("5k", 5.0),
+        ("10k", 10.0),
+        ("Halbmarathon", 21.0975),
+        ("Marathon", 42.195),
+    ]
+    items = []
+    for label, dist in targets:
+        time_s = base_pace * 60 * dist * (dist / base_km) ** 0.06
+        items.append(
+            {
+                "label": label,
+                "distance_km": dist,
+                "time_seconds": int(time_s),
+                "pace_min_km": round(time_s / 60 / dist, 2),
+            }
+        )
+    return {
+        "items": items,
+        "base": {
+            "activity_name": fastest.name,
+            "distance_km": round(base_km, 1),
+            "pace_min_km": round(base_pace, 2),
+            "date": fastest.start_time.date().isoformat(),
+        },
+    }
+
+
+@router.get("/heatmap")
+def heatmap(
+    user: User = Depends(auth.get_current_user),
+    days: int = Query(default=365, le=400),
+):
+    """Aktivität pro Kalendertag (km + Sessions + Belastung) für den Jahreskalender."""
+    since = datetime.now() - timedelta(days=days)
+    with session() as s:
+        acts = s.exec(
+            select(Activity).where(Activity.user_id == user.id, Activity.start_time >= since)
+        ).all()
+    per_day: dict[str, dict] = {}
+    for a in acts:
+        key = a.start_time.date().isoformat()
+        e = per_day.setdefault(key, {"km": 0.0, "sessions": 0, "load": 0.0})
+        e["km"] += a.distance_km or 0
+        e["sessions"] += 1
+        e["load"] += a.training_load or 0
+    series = []
+    for i in range(days):
+        d = (date.today() - timedelta(days=days - 1 - i)).isoformat()
+        e = per_day.get(d, {"km": 0.0, "sessions": 0, "load": 0.0})
+        series.append({"date": d, "km": round(e["km"], 1), "sessions": e["sessions"], "load": round(e["load"], 1)})
+    return {"days": days, "series": series}
+
+
 @router.get("/zones")
 def zone_stats(
     user: User = Depends(auth.get_current_user),

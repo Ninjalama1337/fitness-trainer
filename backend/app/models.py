@@ -55,6 +55,8 @@ class HealthDay(SQLModel, table=True):
     hrv_status: Optional[str] = None
     stress_avg: Optional[float] = None
     steps: Optional[int] = None
+    weight_kg: Optional[float] = None
+    body_fat_pct: Optional[float] = None
 
 
 class PlanDay(SQLModel, table=True):
@@ -134,4 +136,26 @@ class WeekSummary(SQLModel, table=True):
     week: str = Field(primary_key=True)
     summary: str = ""
     improvement: str = ""
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+
+
+class MonthSummary(SQLModel, table=True):
+    __tablename__ = "month_summaries"
+
+    user_id: int = Field(primary_key=True)
+    month: str = Field(primary_key=True)
+    summary: str = ""
+    advice: str = ""
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+
+
+class PushSubscription(SQLModel, table=True):
+    __tablename__ = "push_subscriptions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    endpoint: str = Field(unique=True)
+    p256dh: str = ""
+    auth_key: str = ""
+    enabled: bool = True
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)

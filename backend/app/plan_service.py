@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import text
 from sqlmodel import select
 
 from . import auth, db, llm
@@ -388,3 +389,98 @@ def json_dumps(obj, indent=2) -> str:
     import json
 
     return json.dumps(obj, indent=indent, ensure_ascii=False, default=str)
+
+
+def build_month_context(user_id: int, month: str) -> dict:
+    """Aktivitäten + Health-Daten eines Monats (YYYY-MM) für die KI."""
+    with db.session() as s:
+        acts = s.exec(
+            text(
+                "SELECT * FROM activities WHERE user_id = :uid AND strftime('%Y-%m', start_time) = :m ORDER BY start_time"
+            ).bindparams(uid=user_id, m=month)
+        ).mappings().all()
+        health = s.exec(
+            text(
+                "SELECT * FROM health_days WHERE user_id = :uid AND strftime('%Y-%m', date) = :m ORDER BY date"
+            ).bindparams(uid=user_id, m=month)
+        ).mappings().all()
+
+    acts_list = []
+    for a in acts:
+        acts_list.append(
+            {
+                "datum": str(a["start_time"])[:16],
+                "sport": SPORT_LABELS.get(a["sport"], a["sport"]),
+                "km": a["distance_km"],
+                "dauer_min": round((a["duration_seconds"] or 0) / 60),
+                "training_load": a["training_load"],
+                "pace_min_km": a["avg_pace_min_km"],
+            }
+        )
+    health_list = []
+    for h in health:
+        health_list.append(
+            {
+                "datum": str(h["date"]),
+                "schlaf_h": round((h["sleep_seconds"] or 0) / 3600, 1),
+                "ruhepuls": h["resting_hr"],
+                "hrv": h["hrv_avg"],
+                "gewicht_kg": h["weight_kg"],
+                "koerperfett_pct": h["body_fat_pct"],
+            }
+        )
+    totals = {
+        "einheiten": len(acts_list),
+        "lauf_km": round(sum((a["km"] or 0) for a in acts_list if a["sport"] == "Laufen"), 1),
+        "rad_km": round(sum((a["km"] or 0) for a in acts_list if a["sport"] == "Radfahren"), 1),
+        "kraft_einheiten": sum(1 for a in acts_list if a["sport"] == "Krafttraining"),
+        "training_load_sum": round(sum((a["training_load"] or 0) for a in acts_list), 1),
+        "gewicht_start": health_list[0]["gewicht_kg"] if health_list else None,
+        "gewicht_ende": health_list[-1]["gewicht_kg"] if health_list else None,
+    }
+    return {"monat": month, "totals": totals, "aktivitaeten": acts_list[:60], "health": health_list}
+
+
+def generate_month_summary(user_id: int, month: str | None = None) -> dict:
+    """KI-Monatsanalyse mit Zusammenfassung und Trainingsempfehlung."""
+    from .models import MonthSummary
+
+    month = month or date.today().strftime("%Y-%m")
+    ctx = build_month_context(user_id, month)
+    system = (
+        "Du bist ein erfahrener Lauftrainer. Analysiere den Trainingsmonat "
+        "des Athleten wertschätzend und mit sportwissenschaftlichem Blick. "
+        "Antworte NUR mit validem JSON."
+    )
+    user = f"""Analysiere den Monat {month}:
+{json_dumps(ctx, indent=2)}
+
+Antworte als JSON:
+{{"zusammenfassung": "4-6 Sätze: Entwicklung (Umfang, Intensität, Regelmäßigkeit), positive Punkte, Schwächen – konkret mit Zahlen", "empfehlung": "2-3 konkrete Empfehlungen für den nächsten Monat (Umfang, Tempo, Kraft, Schlaf, Gewicht)"}}"""
+    db_user = auth.get_user(user_id)
+    result = llm.chat_json(system, user, db_user)
+    with db.session() as s:
+        row = s.get(MonthSummary, (user_id, month)) or MonthSummary(user_id=user_id, month=month)
+        row.summary = str(result.get("zusammenfassung", "")).strip()
+        row.advice = str(result.get("empfehlung", "")).strip()
+        row.created_at = datetime.now()
+        s.add(row)
+        s.commit()
+        return {"month": month, "summary": row.summary, "advice": row.advice}
+
+
+def ensure_month_summary(user_id: int) -> dict | None:
+    """Erstellt die Monatsanalyse, falls für den aktuellen Monat fehlend."""
+    from .models import MonthSummary
+
+    month = date.today().strftime("%Y-%m")
+    with db.session() as s:
+        existing = s.get(MonthSummary, (user_id, month))
+    if existing and existing.summary:
+        return {"month": month, "summary": existing.summary, "advice": existing.advice}
+    try:
+        return generate_month_summary(user_id, month)
+    except llm.LlmError as exc:
+        logger = __import__("logging").getLogger("fitness")
+        logger.info("Monats-Analyse fehlgeschlagen: %s", exc)
+        return None

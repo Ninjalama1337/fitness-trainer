@@ -78,9 +78,10 @@ def sync(
         )
         if result.get("imported", 0) > 0:
             try:
-                from ..plan_service import ensure_week_summary
+                from ..plan_service import ensure_month_summary, ensure_week_summary
 
                 ensure_week_summary(user.id)
+                ensure_month_summary(user.id)
             except Exception:
                 pass
         return {"ok": True, **result}
@@ -88,6 +89,9 @@ def sync(
         import logging
 
         logging.getLogger("fitness").exception("Sync fehlgeschlagen: %s", exc)
+        from .. import push
+
+        push.notify_sync_error(user.id, str(exc))
         _handle_garmin_error(exc, user.id, "Sync")
 
 
